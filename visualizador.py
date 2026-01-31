@@ -210,8 +210,9 @@ def crear_grafico(df_v, v, modo_log=False):
     tick_dates = []
     tick_labels = []
     
-    # Ticks cada 5 días
-    for i in range(0, 30, 5):
+    # Ticks cada 5 días EXCEPTO el último
+    # 0, 5, 10, 15, 20 (SIN 25)
+    for i in range(0, 25, 5):
         fecha = hace_30_dias + timedelta(days=i)
         tick_dates.append(fecha)
         # Convertir mes a español
@@ -220,7 +221,7 @@ def crear_grafico(df_v, v, modo_log=False):
             label_en = label_en.replace(en, es)
         tick_labels.append(label_en)
     
-    # Agregar fecha actual (siempre visible)
+    # SIEMPRE agregar fecha actual como último tick
     tick_dates.append(ahora)
     label_actual = ahora.strftime("%d %b")
     for en, es in MESES_ES.items():
