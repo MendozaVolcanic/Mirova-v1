@@ -198,18 +198,41 @@ def crear_grafico(df_v, v, modo_log=False):
                 showlegend=True
             ))
 
-    # Eje X con fecha actual
+    # ========================================
+    # FIX: Eje X con fecha actual visible y meses en español
+    # ========================================
+    MESES_ES = {
+        'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
+        'May': 'May', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
+        'Sep': 'Sep', 'Oct': 'Oct', 'Nov': 'Nov', 'Dec': 'Dic'
+    }
+    
     tick_dates = []
+    tick_labels = []
+    
+    # Ticks cada 5 días
     for i in range(0, 30, 5):
-        tick_dates.append(hace_30_dias + timedelta(days=i))
-    tick_dates.append(ahora)  # Fecha actual siempre visible
+        fecha = hace_30_dias + timedelta(days=i)
+        tick_dates.append(fecha)
+        # Convertir mes a español
+        label_en = fecha.strftime("%d %b")
+        for en, es in MESES_ES.items():
+            label_en = label_en.replace(en, es)
+        tick_labels.append(label_en)
+    
+    # Agregar fecha actual (siempre visible)
+    tick_dates.append(ahora)
+    label_actual = ahora.strftime("%d %b")
+    for en, es in MESES_ES.items():
+        label_actual = label_actual.replace(en, es)
+    tick_labels.append(label_actual)
     
     fig.update_xaxes(
         type="date",
         range=[hace_30_dias, ahora],
         tickmode='array',
         tickvals=tick_dates,
-        tickformat="%d %b",
+        ticktext=tick_labels,  # Usar etiquetas personalizadas
         showgrid=True,
         gridcolor='rgba(255,255,255,0.12)',
         minor=dict(dtick=86400000.0, showgrid=True, gridcolor='rgba(255,255,255,0.03)'),
