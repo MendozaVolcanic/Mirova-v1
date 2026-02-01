@@ -1,13 +1,17 @@
 """
-OCR UTILS V5 - Validación con Estrella Verde
-Incluye 3 fases de clasificación:
-1. Píxeles rojos (actual)
-2. Estrella verde (nuevo)
-3. Fallback píxeles negros
+OCR UTILS V5 - COMPLETO
+Incluye:
+- Funciones V5 (clasificación con estrella verde)
+- Funciones antiguas (para scraper_ocr.py)
 """
 
 import cv2
 import numpy as np
+import pytesseract
+from datetime import datetime
+import pytz
+import re
+from PIL import Image
 
 # ========================================
 # COORDENADAS DE LÍMITES (desde Photoshop)
@@ -82,8 +86,274 @@ LIMITES_Y_COORDENADAS = {
 
 
 # ========================================
-# FASE 1: Análisis de píxeles rojos
+# FUNCIONES ANTIGUAS (para scraper_ocr.py)
 # ========================================
+
+def extraer_eventos_latest10nti(img_path):
+    """
+    Extrae eventos de Latest10NTI.png usando OCR
+    
+    Args:
+        img_path: Path a Latest10NTI.png
+    
+    Returns:
+        list: Lista de eventos [{timestamp, datetime, vrp_mw}, ...]
+    """
+    try:
+        img = Image.open(img_path)
+        img_array = np.array(img)
+        
+        # OCR con múltiples configuraciones
+        configs = [
+            r'--oem 3 --psm 6',
+            r'--oem 3 --psm 4',
+            r'--oem 3 --psm 11'
+        ]
+        
+        texto = None
+        for config in configs:
+            texto_temp = pytesseract.image_to_string(img_array, config=config)
+            if texto_temp and len(texto_temp.strip()) > 50:
+                texto = texto_temp
+                break
+        
+        if not texto:
+            return []
+        
+        # Filtrar línea "Last Update"
+        lineas = []
+        for match in re.finditer(r'Last Update.*', texto, re.IGNORECASE):
+            start_pos = match.start()
+            # Solo tomar texto ANTES de "Last Update"
+            texto = texto[:start_pos]
+            break
+        
+        # Buscar patrones de fecha + VRP
+        # Formato: "DD-MMM-YYYY HH:MM:SS    VRP_VALUE"
+        patron = r'(\d{2}-[A-Za-z]{3}-\d{4}\s+\d{2}:\d{2}:\d{2})\s+([\d.]+)'
+        
+        eventos = []
+        for match in re.finditer(patron, texto):
+            try:
+                fecha_str = match.group(1)
+                vrp_str = match.group(2)
+                
+                # Parsear fecha
+                dt_utc = datetime.strptime(fecha_str, "%d-%b-%Y %H:%M:%S")
+                dt_utc = dt_utc.replace(tzinfo=pytz.utc)
+                
+                # Parsear VRP
+                vrp_mw = float(vrp_str)
+                
+                eventos.append({
+                    'timestamp': int(dt_utc.timestamp()),
+                    'datetime': dt_utc,
+                    'vrp_mw': vrp_mw
+                })
+            except:
+                continue
+        
+        return eventos
+    
+    except Exception as e:
+        print(f"Error en OCR: {e}")
+        return []
+
+
+def analizar_puntos_distancia(img_dist_path, eventos):
+    """
+    Analiza píxeles en Dist.png para validar eventos
+    
+    Args:
+        img_dist_path: Path a Dist.png
+        eventos: Lista de eventos extraídos por OCR
+    
+    Returns:
+        list: Eventos con campo 'color_punto' agregado
+    """
+    try:
+        img_dist = cv2.imread(img_dist_path)
+        if img_dist is None:
+            return eventos
+        
+        img_dist_rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
+        
+        # ROI para análisis (últimas 24 horas del gráfico)
+        h, w = img_dist_rgb.shape[:2]
+        
+        # ROI genérico
+        roi_x = int(w * 0.7)
+        roi_y = int(h * 0.3)
+        roi_w = int(w * 0.25)
+        roi_h = int(h * 0.5)
+        
+        roi = img_dist_rgb[roi_y:roi_y+roi_h, roi_x:roi_x+roi_w]
+        
+        # Contar píxeles por color
+        # Filtrar verde (estrella, puede confundir)
+        mask_verde = cv2.inRange(roi, (0, 100, 0), (100, 255, 100))
+        pixeles_verde = np.sum(mask_verde > 0)
+        
+        # Rojos (evento dentro)
+        mask_rojos = cv2.inRange(roi, (200, 0, 0), (255, 50, 50))
+        pixeles_rojos = np.sum(mask_rojos > 0)
+        
+        # Negros (evento fuera)
+        mask_negros = cv2.inRange(roi, (0, 0, 0), (50, 50, 50))
+        pixeles_negros = np.sum(mask_negros > 0)
+        
+        # Determinar color dominante
+        if pixeles_rojos > pixeles_negros and pixeles_rojos > 10:
+            color = 'rojo'
+        elif pixeles_negros > pixeles_rojos and pixeles_negros > 10:
+            color = 'negro'
+        elif pixeles_verde > 10:
+            color = 'verde'
+        else:
+            color = 'sin_punto'
+        
+        # Agregar a todos los eventos
+        for evento in eventos:
+            evento['color_punto'] = color
+            evento['pixeles_rojos'] = int(pixeles_rojos)
+            evento['pixeles_negros'] = int(pixeles_negros)
+            evento['metodo'] = 'rgb_analysis'
+        
+        return eventos
+    
+    except Exception as e:
+        print(f"Error analizando Dist.png: {e}")
+        return eventos
+
+
+def clasificar_confianza(evento):
+    """
+    Clasifica confianza de un evento OCR
+    
+    Args:
+        evento: Dict con campos color_punto, pixeles_rojos, pixeles_negros, vrp_mw
+    
+    Returns:
+        dict: {confianza, tipo_registro, guardar, guardar_imagenes, requiere_verificacion, nota}
+    """
+    color = evento.get('color_punto', 'sin_punto')
+    pixeles_rojos = evento.get('pixeles_rojos', 0)
+    pixeles_negros = evento.get('pixeles_negros', 0)
+    vrp_mw = evento.get('vrp_mw', 0)
+    
+    # Sin VRP = no es evento
+    if vrp_mw <= 0:
+        return {
+            'confianza': 'invalido',
+            'tipo_registro': 'FALSO_POSITIVO_OCR',
+            'guardar': False,
+            'guardar_imagenes': False,
+            'requiere_verificacion': False,
+            'nota': 'VRP = 0, no es evento térmico'
+        }
+    
+    # Color rojo = alta confianza
+    if color == 'rojo' or pixeles_rojos > 30:
+        return {
+            'confianza': 'alta',
+            'tipo_registro': 'ALERTA_TERMICA_OCR',
+            'guardar': True,
+            'guardar_imagenes': True,
+            'requiere_verificacion': False,
+            'nota': 'Píxeles rojos dominantes - Evento dentro del límite'
+        }
+    
+    # Mezcla equilibrada = media confianza
+    if pixeles_rojos > 0 and pixeles_negros > 0:
+        ratio = pixeles_rojos / max(pixeles_negros, 1)
+        if ratio > 0.5:
+            return {
+                'confianza': 'media',
+                'tipo_registro': 'ALERTA_TERMICA_OCR',
+                'guardar': True,
+                'guardar_imagenes': True,
+                'requiere_verificacion': True,
+                'nota': f'Mezcla rojo-negro (ratio={ratio:.2f}) - Requiere verificación'
+            }
+    
+    # Estrella verde cerca
+    if color == 'verde':
+        return {
+            'confianza': 'media',
+            'tipo_registro': 'ALERTA_TERMICA_OCR',
+            'guardar': True,
+            'guardar_imagenes': True,
+            'requiere_verificacion': True,
+            'nota': 'Estrella verde detectada - Requiere verificación manual'
+        }
+    
+    # Negro dominante = falso positivo
+    if color == 'negro' or pixeles_negros > 70:
+        return {
+            'confianza': 'baja',
+            'tipo_registro': 'FALSO_POSITIVO_OCR',
+            'guardar': True,
+            'guardar_imagenes': False,
+            'requiere_verificacion': False,
+            'nota': 'Píxeles negros dominantes - Evento fuera del límite'
+        }
+    
+    # Sin señal clara
+    return {
+        'confianza': 'baja',
+        'tipo_registro': 'FALSO_POSITIVO_OCR',
+        'guardar': True,
+        'guardar_imagenes': False,
+        'requiere_verificacion': False,
+        'nota': 'Sin señal clara en Dist.png'
+    }
+
+
+def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df_ocr):
+    """
+    Verifica que el evento NO exista ya en los CSVs
+    
+    Args:
+        evento: Dict con timestamp
+        volcan_nombre: Nombre del volcán
+        sensor: MODIS, VIIRS375, VIIRS, VIIRS750
+        df_consolidado: DataFrame de latest.php
+        df_ocr: DataFrame de OCR
+    
+    Returns:
+        bool: True si NO existe (es nuevo), False si ya existe
+    """
+    ts = evento['timestamp']
+    
+    # Verificar en consolidado
+    if not df_consolidado.empty:
+        existe = (
+            (df_consolidado['timestamp'] == ts) &
+            (df_consolidado['Volcan'] == volcan_nombre) &
+            (df_consolidado['Sensor'] == sensor)
+        ).any()
+        
+        if existe:
+            return False
+    
+    # Verificar en OCR
+    if not df_ocr.empty:
+        existe = (
+            (df_ocr['timestamp'] == ts) &
+            (df_ocr['Volcan'] == volcan_nombre) &
+            (df_ocr['Sensor'] == sensor)
+        ).any()
+        
+        if existe:
+            return False
+    
+    return True
+
+
+# ========================================
+# FUNCIONES V5 (Estrella Verde)
+# ========================================
+
 def analizar_pixeles_rojos(roi):
     """
     Analiza píxeles rojos en ROI de Dist.png
@@ -113,9 +383,6 @@ def analizar_pixeles_rojos(roi):
         return None, None
 
 
-# ========================================
-# FASE 2: Detección de estrella verde
-# ========================================
 def detectar_centro_estrella_verde(img_dist):
     """
     Detecta el centro de la estrella verde en Dist.png
@@ -213,9 +480,6 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
         return 'baja', 'FALSO_POSITIVO_OCR', nota
 
 
-# ========================================
-# CLASIFICACIÓN INTEGRADA (3 FASES)
-# ========================================
 def clasificar_confianza_v5(img_dist_path, roi, volcan_nombre):
     """
     Clasificación completa en 3 fases:
@@ -288,58 +552,6 @@ def clasificar_confianza_v5(img_dist_path, roi, volcan_nombre):
     return (
         'baja',
         'FALSO_POSITIVO_OCR',
-        'sin_señal_clara',
+        'sin_senal_clara',
         'No se detectaron píxeles rojos ni estrella verde'
     )
-
-
-# ========================================
-# FUNCIÓN DE PRUEBA
-# ========================================
-if __name__ == "__main__":
-    # Test con caso Chaitén 30-Ene
-    print("="*70)
-    print("TEST: Clasificación OCR con estrella verde")
-    print("="*70)
-    
-    # Simular caso Chaitén con estrella en Y=280
-    # (en implementación real, esto viene de la imagen)
-    
-    volcan = "Chaiten"
-    coords = LIMITES_Y_COORDENADAS[volcan]
-    
-    print(f"\nVolcán: {volcan}")
-    print(f"Límite: {coords['LIMITE_KM']} km")
-    print(f"Y límite: {coords['Y_LIMITE_PX']} px")
-    print(f"Y eje X: {coords['Y_EJE_X_PX']} px")
-    
-    # Simular estrella en diferentes posiciones
-    casos_prueba = [
-        (280, "Chaitén 30-Ene (caso real)"),
-        (250, "Estrella muy cerca del límite"),
-        (260, "Estrella justo en el límite"),
-        (200, "Estrella lejos (fuera)"),
-        (330, "Estrella muy cerca del eje X")
-    ]
-    
-    for y_estrella, descripcion in casos_prueba:
-        print(f"\n{descripcion}:")
-        print(f"  Y estrella: {y_estrella} px")
-        
-        if y_estrella >= coords['Y_LIMITE_PX']:
-            proporcion = (coords['Y_EJE_X_PX'] - y_estrella) / (coords['Y_EJE_X_PX'] - coords['Y_LIMITE_PX'])
-            dist_km = proporcion * coords['LIMITE_KM']
-            print(f"  ✅ DENTRO del límite")
-            print(f"  Distancia estimada: {dist_km:.2f} km")
-            print(f"  Clasificación: ALTA - ALERTA_TERMICA_OCR")
-        else:
-            print(f"  ❌ FUERA del límite")
-            print(f"  Clasificación: BAJA - FALSO_POSITIVO_OCR")
-    
-    print("\n" + "="*70)
-    print("Para implementar en scraper_ocr.py:")
-    print("  from ocr_utils_v5 import clasificar_confianza_v5")
-    print("  confianza, tipo, metodo, nota = clasificar_confianza_v5(")
-    print("      img_dist_path, roi, volcan_nombre")
-    print("  )")
-    print("="*70)
