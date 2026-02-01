@@ -199,7 +199,7 @@ def crear_grafico(df_v, v, modo_log=False):
             ))
 
     # ========================================
-    # FIX DEFINITIVO: Eje X con fecha actual SIEMPRE visible
+    # FIX DEFINITIVO: Eje X - 7 ticks con fecha actual
     # ========================================
     MESES_ES = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
@@ -207,41 +207,26 @@ def crear_grafico(df_v, v, modo_log=False):
         'Sep': 'Sep', 'Oct': 'Oct', 'Nov': 'Nov', 'Dec': 'Dic'
     }
     
+    # Generar exactamente 7 ticks: días 0, 5, 10, 15, 20, 25, HOY
     tick_dates = []
     tick_labels = []
     
-    # Generar ticks cada 5 días: 0, 5, 10, 15, 20, 25
-    dias_ticks = [0, 5, 10, 15, 20, 25]
-    
-    for i in dias_ticks:
+    # Ticks intermedios: 0, 5, 10, 15, 20, 25
+    for i in [0, 5, 10, 15, 20, 25]:
         fecha = hace_30_dias + timedelta(days=i)
+        tick_dates.append(fecha)
         
-        # Solo agregar si no es el futuro
-        if fecha <= ahora:
-            tick_dates.append(fecha)
-            label_en = fecha.strftime("%d %b")
-            for en, es in MESES_ES.items():
-                label_en = label_en.replace(en, es)
-            tick_labels.append(label_en)
-    
-    # CRÍTICO: SIEMPRE agregar fecha actual como ÚLTIMO tick
-    # Verificar que no sea duplicado del último tick agregado
-    ultimo_tick = tick_dates[-1] if tick_dates else None
-    
-    # Si la fecha actual es diferente del último tick (diferencia > 1 día)
-    if ultimo_tick is None or (ahora - ultimo_tick).total_seconds() > 86400:
-        tick_dates.append(ahora)
-        label_actual = ahora.strftime("%d %b")
+        label_en = fecha.strftime("%d %b")
         for en, es in MESES_ES.items():
-            label_actual = label_actual.replace(en, es)
-        tick_labels.append(label_actual)
-    else:
-        # Si son muy cercanos, reemplazar el último con fecha actual
-        tick_dates[-1] = ahora
-        label_actual = ahora.strftime("%d %b")
-        for en, es in MESES_ES.items():
-            label_actual = label_actual.replace(en, es)
-        tick_labels[-1] = label_actual
+            label_en = label_en.replace(en, es)
+        tick_labels.append(label_en)
+    
+    # Tick 7: FECHA ACTUAL (siempre al final)
+    tick_dates.append(ahora)
+    label_actual = ahora.strftime("%d %b")
+    for en, es in MESES_ES.items():
+        label_actual = label_actual.replace(en, es)
+    tick_labels.append(label_actual)
     
     fig.update_xaxes(
         type="date",
