@@ -210,16 +210,25 @@ def crear_grafico(df_v, v, modo_log=False):
     tick_dates = []
     tick_labels = []
     
-    # Ticks cada 5 días EXCEPTO el último
-    # 0, 5, 10, 15, 20 (SIN 25)
-    for i in range(0, 25, 5):
+    # DEBUG: Imprimir fechas para verificar
+    print(f"\n[DEBUG {v}] Generando ticks:")
+    print(f"  hace_30_dias: {hace_30_dias.strftime('%Y-%m-%d %H:%M')}")
+    print(f"  ahora: {ahora.strftime('%Y-%m-%d %H:%M')}")
+    
+    # Ticks cada 5 días: 0, 5, 10, 15, 20, 25
+    # Generar 6 ticks intermedios
+    for i in [0, 5, 10, 15, 20, 25]:
         fecha = hace_30_dias + timedelta(days=i)
-        tick_dates.append(fecha)
-        # Convertir mes a español
-        label_en = fecha.strftime("%d %b")
-        for en, es in MESES_ES.items():
-            label_en = label_en.replace(en, es)
-        tick_labels.append(label_en)
+        
+        # No agregar si es igual o posterior a ahora
+        if fecha < ahora:
+            tick_dates.append(fecha)
+            # Convertir mes a español
+            label_en = fecha.strftime("%d %b")
+            for en, es in MESES_ES.items():
+                label_en = label_en.replace(en, es)
+            tick_labels.append(label_en)
+            print(f"  Tick: {label_en} ({fecha.strftime('%Y-%m-%d')})")
     
     # SIEMPRE agregar fecha actual como último tick
     tick_dates.append(ahora)
@@ -227,6 +236,8 @@ def crear_grafico(df_v, v, modo_log=False):
     for en, es in MESES_ES.items():
         label_actual = label_actual.replace(en, es)
     tick_labels.append(label_actual)
+    print(f"  Tick ACTUAL: {label_actual} ({ahora.strftime('%Y-%m-%d %H:%M')})")
+    print(f"  Total ticks: {len(tick_dates)}")
     
     fig.update_xaxes(
         type="date",
