@@ -79,11 +79,8 @@ def crear_grafico(df_v, v, modo_log=False):
     def transform(val_mw):
         if modo_log:
             watts = val_mw * 1e6
-            # Escala log: mínimo 10^4 (0.01 MW)
-            # Valores < 10^4 quedan fuera de rango visible
             return np.log10(max(watts, 1e4))
         else:
-            # Escala lineal: desde 0
             return val_mw
     
     v_max_val_watts = v_max_val * 1e6
@@ -91,19 +88,13 @@ def crear_grafico(df_v, v, modo_log=False):
     # Bandas de color
     for y0, y1, label, color in MIROVA_BANDS:
         if modo_log:
-            # ========================================
-            # CORRECCIÓN: Escala log desde 10^5
-            # ========================================
-            # Primera banda (gris): 10^5 a 10^6
-            # Si y0 = 0, usar 10^5 (50,000 W = 0.05 MW)
             if y0 == 0:
-                l_y0 = np.log10(1e5)  # 10^5 = 5
+                l_y0 = np.log10(1e5)
             else:
                 l_y0 = np.log10(max(y0, 1e5))
             
             l_y1 = np.log10(y1)
         else:
-            # Escala lineal: desde 0
             l_y0 = y0 / 1e6
             l_y1 = y1 / 1e6
         
@@ -111,7 +102,6 @@ def crear_grafico(df_v, v, modo_log=False):
         
         # Mostrar en leyenda si hay datos en ese rango
         if modo_log:
-            # Para log, verificar desde 10^5
             rango_inicio = 1e5 if y0 == 0 else y0
             if v_max_val_watts >= rango_inicio:
                 fig.add_trace(go.Scatter(
@@ -124,7 +114,6 @@ def crear_grafico(df_v, v, modo_log=False):
                     hoverinfo='skip'
                 ))
         else:
-            # Para lineal, verificar desde 0
             rango_inicio_mw = y0 / 1e6
             if v_max_val >= rango_inicio_mw:
                 fig.add_trace(go.Scatter(
@@ -137,12 +126,33 @@ def crear_grafico(df_v, v, modo_log=False):
                     hoverinfo='skip'
                 ))
     
-    # Agrupar por sensor y confianza
-    grupos = df_v_30.groupby(['Sensor', 'Confianza_Validacion'])
+    # ========================================
+    # FIX CRÍTICO: Confianza_Validacion OPCIONAL
+    # ========================================
+    tiene_confianza = 'Confianza_Validacion' in df_v_30.columns
     
-    for (sensor, confianza), grupo in grupos:
+    if tiene_confianza:
+        # Agrupar por sensor Y confianza
+        grupos = df_v_30.groupby(['Sensor', 'Confianza_Validacion'])
+    else:
+        # Solo agrupar por sensor (modo legacy)
+        grupos = df_v_30.groupby(['Sensor'])
+    
+    for grupo_key, grupo in grupos:
+        # Manejar tanto tuplas (Sensor, Confianza) como strings (solo Sensor)
+        if isinstance(grupo_key, tuple):
+            sensor, confianza = grupo_key
+        else:
+            sensor = grupo_key
+            confianza = None
+        
         simbolo = MAPA_SIMBOLOS.get(sensor, "circle")
-        color = COLORES_CONFIANZA.get(confianza, "#808080")
+        
+        # Color según confianza (si existe)
+        if confianza:
+            color = COLORES_CONFIANZA.get(confianza, "#808080")
+        else:
+            color = "#2ea043"  # Verde por defecto
         
         x_fechas = grupo['Fecha_Chile_temp']
         y_valores = grupo['VRP_MW'].apply(transform)
@@ -161,7 +171,12 @@ def crear_grafico(df_v, v, modo_log=False):
                 vrp_display = f"{vrp_mw:.2f} MW"
             
             dist_km = row.get('Distancia_km', 0)
-            conf_texto = confianza if confianza else "N/A"
+            
+            # Confianza solo si existe
+            if tiene_confianza and confianza:
+                conf_texto = confianza
+            else:
+                conf_texto = "N/A"
             
             hover_texts.append(
                 f"<b>{fecha_chile}</b><br>" +
@@ -173,7 +188,7 @@ def crear_grafico(df_v, v, modo_log=False):
         
         # Nombre de leyenda
         nombre_leyenda = f"{sensor}"
-        if confianza and confianza != "N/A" and confianza != "valido":
+        if tiene_confianza and confianza and confianza not in ["N/A", "valido"]:
             nombre_leyenda += f" ({confianza})"
         
         fig.add_trace(go.Scatter(
@@ -195,10 +210,7 @@ def crear_grafico(df_v, v, modo_log=False):
     
     # Configuración de ejes
     if modo_log:
-        # ========================================
-        # CORRECCIÓN: Eje Y log desde 10^5 (0.1 MW)
-        # ========================================
-        y_min_log = np.log10(1e5)  # 10^5 W = 0.1 MW
+        y_min_log = np.log10(1e5)
         y_max_log = np.log10(v_max_val_watts)
         y_max_log = max(y_max_log + 0.3, y_min_log + 1)
         
@@ -211,7 +223,6 @@ def crear_grafico(df_v, v, modo_log=False):
             showgrid=True
         )
     else:
-        # Escala lineal: desde 0
         y_max_lineal = v_max_val
         y_max_lineal = max(y_max_lineal * 1.1, 0.1)
         
@@ -282,6 +293,13 @@ def main():
     print(f"\n🌋 Volcanes en CSV:")
     for v_csv in sorted(volcanes_en_csv):
         print(f"   - {v_csv}")
+    
+    # Verificar si existe columna Confianza_Validacion
+    tiene_confianza_csv = 'Confianza_Validacion' in df.columns
+    if tiene_confianza_csv:
+        print(f"\n✅ Columna 'Confianza_Validacion' detectada")
+    else:
+        print(f"\n⚠️ Columna 'Confianza_Validacion' NO existe (modo legacy)")
     
     # Generar gráficos
     total_lineal = 0
