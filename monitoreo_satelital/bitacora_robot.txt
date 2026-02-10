@@ -33752,3 +33752,6 @@
 [2026-02-10 11:35:51] INICIO SCRAPER
 [2026-02-10 11:35:52] Filas leídas desde latest.php: 522
 [2026-02-10 11:35:52] Proceso completado correctamente.
+[2026-02-10 11:40:42] INICIO SCRAPER
+[2026-02-10 11:40:43] Filas leídas desde latest.php: 522
+[2026-02-10 11:40:43] Proceso completado correctamente.
