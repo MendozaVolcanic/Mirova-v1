@@ -1,5 +1,5 @@
 """
-SCRAPER_OCR.PY - FIX 4: Latest10NTI correcto
+SCRAPER_OCR.PY - FIX 6: Nombres consistentes (NO guión bajo)
 """
 
 import requests
@@ -71,12 +71,19 @@ def descargar_imagen_temp(session, url, ruta_destino):
 def descargar_imagenes_permanentes(session, volcan_id, sensor, evento, es_verificar):
     """
     Descarga y guarda imágenes permanentes
-    FIX 4: Latest10NTI ahora se descarga correctamente
+    FIX 6: Normalización CONSISTENTE con scraper.py
+    - Puyehue-Cordon Caulle → Puyehue-Cordon Caulle (mantiene guión)
+    - Nevados de Chillan → Nevados_de_Chillan (solo espacios a guión bajo)
     """
     conf = VOLCANES_CONFIG[volcan_id]
     nombre_v = conf["nombre"]
-    # FIX 5: Normalizar consistentemente (guión bajo en vez de guión)
-    nombre_v_normalizado = nombre_v.replace(' ', '_').replace('-', '_')
+    
+    # ========================================
+    # FIX 6: SOLO reemplazar espacios, NO guiones
+    # ========================================
+    nombre_v_normalizado = nombre_v.replace(' ', '_')
+    # NO: .replace('-', '_')  ← Esto creaba Puyehue_Cordon_Caulle
+    
     id_mirova = conf["id_mirova"]
     
     dt_utc = evento['datetime']
