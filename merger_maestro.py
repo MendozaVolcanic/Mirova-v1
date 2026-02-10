@@ -1,7 +1,11 @@
 """
-MERGER_MAESTRO.PY
+MERGER_MAESTRO.PY V2
 Combina registro_vrp_consolidado.csv + registro_vrp_ocr.csv
-Genera registro_vrp_maestro.csv
+Genera registro_vrp_maestro_publicable.csv
+
+FIX V2: Sistema unificado de confianzas
+- latest.php → 'alta' (antes 'valido')
+- OCR → 'alta', 'media', 'baja', 'invalido'
 """
 
 import pandas as pd
@@ -60,7 +64,7 @@ def merge():
     """Genera CSV maestro"""
     
     print("="*80)
-    print("🔄 MERGER - Generando CSV Maestro")
+    print("🔄 MERGER V2 - Generando CSV Maestro")
     print("="*80)
     
     # Cargar CSVs
@@ -71,14 +75,17 @@ def merge():
         print("❌ No hay datos para procesar")
         return
     
+    # ===== FIX V2: UNIFICAR SISTEMA DE CONFIANZAS =====
     # Preparar consolidado (agregar columnas nuevas)
     if not df_consolidado.empty:
-        # CRÍTICO: NO usar 'N/A' porque pandas lo convierte a NaN
-        # Usar 'valido' en su lugar
         df_consolidado.loc[:, 'Origen_Dato'] = 'latest.php'
-        df_consolidado.loc[:, 'Confianza_Validacion'] = 'valido'  # Era 'N/A'
+        
+        # CAMBIO CRÍTICO: 'valido' → 'alta'
+        # Ahora latest.php usa la misma escala que OCR
+        df_consolidado.loc[:, 'Confianza_Validacion'] = 'alta'  # ✅ ANTES: 'valido'
+        
         df_consolidado.loc[:, 'Requiere_Verificacion'] = False
-        df_consolidado.loc[:, 'Nota_Validacion'] = 'Capturado por latest.php'
+        df_consolidado.loc[:, 'Nota_Validacion'] = 'Validado por MIROVA latest.php'
         
         print(f"   📊 Consolidado preparado: {len(df_consolidado)} eventos")
         print(f"      Confianza_Validacion: {df_consolidado['Confianza_Validacion'].unique()}")
@@ -153,13 +160,13 @@ def merge():
     print(f"   Filtro VRP>0: {antes} → {len(df_publicable)} eventos")
     
     # Filtro 3: Confianza válida (todas las confianzas de ALERTA)
-    # Permitir: 'valido' (latest.php), 'alta', 'media', 'baja' (OCR)
+    # Permitir: 'alta', 'media', 'baja' (tanto latest.php como OCR)
     # NO permitir: 'invalido'
     antes = len(df_publicable)
     if 'Confianza_Validacion' in df_publicable.columns:
         df_publicable = df_publicable[df_publicable['Confianza_Validacion'] != 'invalido'].copy()
         print(f"   Filtro confianza: {antes} → {len(df_publicable)} eventos")
-        print(f"      (Incluye: valido, alta, media, baja)")
+        print(f"      (Incluye: alta, media, baja)")
     
     # Guardar SOLO publicable
     DB_PUBLICABLE = DB_MAESTRO.replace('.csv', '_publicable.csv')
