@@ -1,6 +1,7 @@
 """
-OCR UTILS V5 - COMPLETO
+OCR UTILS V6 - FIX NaN DETECTION
 Incluye:
+- FIX CRÍTICO: Detecta y descarta NaN correctamente
 - Funciones V5 (clasificación con estrella verde)
 - Funciones antiguas (para scraper_ocr.py)
 """
@@ -93,6 +94,8 @@ def extraer_eventos_latest10nti(img_path):
     """
     Extrae eventos de Latest10NTI.png usando OCR
     
+    FIX V6: Detecta y descarta NaN correctamente
+    
     Args:
         img_path: Path a Latest10NTI.png
     
@@ -121,42 +124,64 @@ def extraer_eventos_latest10nti(img_path):
             return []
         
         # Filtrar línea "Last Update"
-        lineas = []
         for match in re.finditer(r'Last Update.*', texto, re.IGNORECASE):
             start_pos = match.start()
             # Solo tomar texto ANTES de "Last Update"
             texto = texto[:start_pos]
             break
         
-        # Buscar patrones de fecha + VRP
-        # Formato: "DD-MMM-YYYY HH:MM:SS    VRP_VALUE"
-        patron = r'(\d{2}-[A-Za-z]{3}-\d{4}\s+\d{2}:\d{2}:\d{2})\s+([\d.]+)'
+        # ===== FIX V6: Patrón mejorado para capturar VRP =====
+        # Busca explícitamente "VRP = X MW" o "VRP =X MW"
+        # Evita capturar líneas sin "VRP" o sin "MW"
+        patron = r'(\d{2}-[A-Za-z]{3}-\d{4}\s+\d{2}:\d{2}:\d{2})\s+.*?VRP\s*=?\s*([\d.]+)\s*MW'
         
         eventos = []
-        for match in re.finditer(patron, texto):
+        for match in re.finditer(patron, texto, re.IGNORECASE):
             try:
                 fecha_str = match.group(1)
                 vrp_str = match.group(2)
                 
+                # ===== FIX V6: Validaciones de VRP =====
+                
+                # 1. Descartar si contiene letras (NaN, nan, N/A, etc.)
+                if any(c.isalpha() for c in vrp_str):
+                    print(f"   ⚠️ SKIP: VRP inválido '{vrp_str}' (contiene letras)")
+                    continue
+                
+                # 2. Validar que sea numérico válido
+                try:
+                    vrp_mw = float(vrp_str)
+                except ValueError:
+                    print(f"   ⚠️ SKIP: VRP no numérico '{vrp_str}'")
+                    continue
+                
+                # 3. Validar rango razonable (0.01 - 1000 MW)
+                if vrp_mw < 0.01:
+                    print(f"   ⚠️ SKIP: VRP demasiado bajo {vrp_mw} MW")
+                    continue
+                
+                if vrp_mw > 1000:
+                    print(f"   ⚠️ SKIP: VRP sospechosamente alto {vrp_mw} MW")
+                    continue
+                
                 # Parsear fecha
                 dt_utc = datetime.strptime(fecha_str, "%d-%b-%Y %H:%M:%S")
                 dt_utc = dt_utc.replace(tzinfo=pytz.utc)
-                
-                # Parsear VRP
-                vrp_mw = float(vrp_str)
                 
                 eventos.append({
                     'timestamp': int(dt_utc.timestamp()),
                     'datetime': dt_utc,
                     'vrp_mw': vrp_mw
                 })
-            except:
+                
+            except Exception as e:
+                print(f"   ❌ Error parseando evento: {e}")
                 continue
         
         return eventos
     
     except Exception as e:
-        print(f"Error en OCR: {e}")
+        print(f"❌ Error en OCR: {e}")
         return []
 
 
@@ -222,7 +247,7 @@ def analizar_puntos_distancia(img_dist_path, eventos):
         return eventos
     
     except Exception as e:
-        print(f"Error analizando Dist.png: {e}")
+        print(f"❌ Error analizando Dist.png: {e}")
         return eventos
 
 
@@ -273,19 +298,8 @@ def clasificar_confianza(evento):
                 'guardar': True,
                 'guardar_imagenes': True,
                 'requiere_verificacion': True,
-                'nota': f'Mezcla rojo-negro (ratio={ratio:.2f}) - Requiere verificación'
+                'nota': f'Mezcla rojos/negros (ratio {ratio:.2f}) - Requiere verificación'
             }
-    
-    # Estrella verde cerca
-    if color == 'verde':
-        return {
-            'confianza': 'media',
-            'tipo_registro': 'ALERTA_TERMICA_OCR',
-            'guardar': True,
-            'guardar_imagenes': True,
-            'requiere_verificacion': True,
-            'nota': 'Estrella verde detectada - Requiere verificación manual'
-        }
     
     # Negro dominante = falso positivo
     if color == 'negro' or pixeles_negros > 70:
