@@ -11,16 +11,35 @@ ARCHIVO_MAESTRO_COMPLETO = "monitoreo_satelital/registro_vrp_maestro.csv"
 ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
-VOLCANES = ["Isluga", "Lascar", "Lastarria", "Peteroa", "Nevados de Chillan", "Copahue", "Llaima", "Villarrica", "Puyehue-Cordon Caulle", "Chaiten"]
+
+# ========================================
+# FIX: Nombres consistentes con scraper.py y CSVs
+# - "PlanchonPeteroa" (NO "Peteroa")
+# - "Puyehue-Cordon Caulle" (con guión)
+# ========================================
+VOLCANES = [
+    "Isluga", "Lascar", "Lastarria",
+    "PlanchonPeteroa",  # ✅ FIX: era "Peteroa"
+    "Nevados de Chillan", "Copahue", "Llaima", "Villarrica",
+    "Puyehue-Cordon Caulle",
+    "Chaiten"
+]
 
 MAPA_SIMBOLOS = {"MODIS": "triangle-up", "VIIRS375": "square", "VIIRS750": "circle", "VIIRS": "circle"}
+
+# ========================================
+# FIX: Sistema unificado de confianzas
+# - 'alta' (antes 'valido' y 'N/A')
+# - 'media', 'baja'
+# ========================================
 COLORES_CONFIANZA = {
-    "N/A": "#2ea043",
-    "valido": "#2ea043",
-    "alta": "#2ea043",
-    "media": "#d29922",
-    "baja": "#fb8500"
+    "N/A": "#2ea043",      # Legacy (por si hay datos antiguos)
+    "valido": "#2ea043",   # Legacy (por si hay datos antiguos)
+    "alta": "#2ea043",     # ✅ Verde - Confiable
+    "media": "#d29922",    # ✅ Amarillo - Requiere verificación
+    "baja": "#fb8500"      # ✅ Naranja - Dudoso
 }
+
 MESES_ES = {1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun", 7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"}
 
 # ========================================
@@ -98,339 +117,256 @@ def crear_grafico(df_v, v, modo_log=False):
                 fig.add_trace(go.Scatter(
                     x=[None], y=[None],
                     mode='markers',
-                    name=label,
-                    marker=dict(
-                        size=8,
-                        symbol='square',
-                        color=color.replace('0.2', '0.8').replace('0.15', '0.8')
-                    ),
-                    showlegend=True
+                    marker=dict(size=0),
+                    showlegend=True,
+                    name=f"{label}",
+                    legendgroup='bandas',
+                    hoverinfo='skip'
                 ))
         else:
-            # Para lineal, desde 0
-            if v_max_val_watts >= y0:
+            # Para lineal, verificar desde 0
+            rango_inicio_mw = y0 / 1e6
+            if v_max_val >= rango_inicio_mw:
                 fig.add_trace(go.Scatter(
                     x=[None], y=[None],
                     mode='markers',
-                    name=label,
-                    marker=dict(
-                        size=8,
-                        symbol='square',
-                        color=color.replace('0.2', '0.8').replace('0.15', '0.8')
-                    ),
-                    showlegend=True
+                    marker=dict(size=0),
+                    showlegend=True,
+                    name=f"{label}",
+                    legendgroup='bandas',
+                    hoverinfo='skip'
                 ))
-
-    # Función para generar URLs a imágenes
-    def generar_url_imagenes(row):
-        ruta_foto = row.get('Ruta Foto', 'No descargada')
+    
+    # Agrupar por sensor y confianza
+    grupos = df_v_30.groupby(['Sensor', 'Confianza_Validacion'])
+    
+    for (sensor, confianza), grupo in grupos:
+        simbolo = MAPA_SIMBOLOS.get(sensor, "circle")
+        color = COLORES_CONFIANZA.get(confianza, "#808080")
         
-        if pd.isna(ruta_foto) or ruta_foto == 'No descargada' or 'descartado' in str(ruta_foto).lower():
-            return None
+        x_fechas = grupo['Fecha_Chile_temp']
+        y_valores = grupo['VRP_MW'].apply(transform)
         
-        partes = ruta_foto.split('/')
-        if len(partes) >= 4:
-            volcan_carpeta = partes[1]
-            fecha_carpeta = partes[2]
+        # Hover text
+        hover_texts = []
+        for idx, row in grupo.iterrows():
+            fecha_chile = row['Fecha_Chile_temp'].strftime('%d-%b %H:%M')
+            vrp_mw = row['VRP_MW']
+            vrp_w = int(vrp_mw * 1e6)
             
-            # Normalizar nombre (Puyehue-Cordon Caulle → Puyehue_Cordon_Caulle)
-            volcan_normalizado = volcan_carpeta.replace('-', '_').replace(' ', '_')
-            
-            url_github = f"https://github.com/MendozaVolcanic/Mirova-v1/tree/main/monitoreo_satelital/imagenes_satelitales/{volcan_normalizado}/{fecha_carpeta}"
-            return url_github
-        
-        return None
-
-    # Traces por sensor y confianza
-    for sensor in df_v_30['Sensor'].unique():
-        df_sensor = df_v_30[df_v_30['Sensor'] == sensor]
-        
-        for confianza in ['N/A', 'valido', 'alta', 'media', 'baja']:
-            if 'Confianza_Validacion' in df_sensor.columns:
-                df_grupo = df_sensor[df_sensor['Confianza_Validacion'] == confianza]
+            # Formatear VRP según escala
+            if modo_log:
+                vrp_display = f"{vrp_w:,} W"
             else:
-                df_grupo = df_sensor if confianza in ['N/A', 'valido'] else pd.DataFrame()
+                vrp_display = f"{vrp_mw:.2f} MW"
             
-            if df_grupo.empty:
-                continue
+            dist_km = row.get('Distancia_km', 0)
+            conf_texto = confianza if confianza else "N/A"
             
-            color = COLORES_CONFIANZA.get(confianza, "#2ea043")
-            simbolo = MAPA_SIMBOLOS.get(sensor, "circle")
-            
-            if confianza in ['N/A', 'valido']:
-                nombre_trace = sensor
-            else:
-                nombre_trace = f"{sensor} ({confianza})"
-            
-            y_vals = [transform(v) for v in df_grupo['VRP_MW']]
-            
-            # Agregar URLs a customdata
-            urls_imagenes = [generar_url_imagenes(row) for _, row in df_grupo.iterrows()]
-            
-            customdata_list = []
-            for i, (idx, row) in enumerate(df_grupo.iterrows()):
-                customdata_list.append([
-                    row['Fecha_UTC'],
-                    row['VRP_MW'],
-                    urls_imagenes[i] if urls_imagenes[i] else ''
-                ])
-            
-            hovertemplate_text = (
-                "<b>%{customdata[1]:.2f} MW</b><br>"
-                "%{customdata[0]|%d %b, %H:%M} UTC<br>"
-                "<extra></extra>"
+            hover_texts.append(
+                f"<b>{fecha_chile}</b><br>" +
+                f"VRP: {vrp_display}<br>" +
+                f"Distancia: {dist_km:.2f} km<br>" +
+                f"Sensor: {sensor}<br>" +
+                f"Confianza: {conf_texto}"
             )
-            
-            fig.add_trace(go.Scatter(
-                x=df_grupo['Fecha_UTC'],
-                y=y_vals,
-                mode='markers',
-                name=nombre_trace,
-                marker=dict(
-                    symbol=simbolo,
-                    color=color,
-                    size=9,
-                    line=dict(width=1, color='white')
-                ),
-                customdata=customdata_list,
-                hoverlabel=dict(bgcolor="rgba(20, 24, 33, 0.95)", font=dict(color="white", size=11)),
-                hovertemplate=hovertemplate_text,
-                showlegend=True
-            ))
-
-    # ========================================
-    # FIX DEFINITIVO: Eje X - 7 ticks con fecha actual
-    # ========================================
-    MESES_ES = {
-        'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
-        'May': 'May', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
-        'Sep': 'Sep', 'Oct': 'Oct', 'Nov': 'Nov', 'Dec': 'Dic'
-    }
-    
-    # Generar exactamente 7 ticks: días 0, 5, 10, 15, 20, 25, HOY
-    tick_dates = []
-    tick_labels = []
-    
-    # Ticks intermedios: 0, 5, 10, 15, 20, 25
-    for i in [0, 5, 10, 15, 20, 25]:
-        fecha = hace_30_dias + timedelta(days=i)
-        tick_dates.append(fecha)
         
-        label_en = fecha.strftime("%d %b")
-        for en, es in MESES_ES.items():
-            label_en = label_en.replace(en, es)
-        tick_labels.append(label_en)
+        # Nombre de leyenda
+        nombre_leyenda = f"{sensor}"
+        if confianza and confianza != "N/A" and confianza != "valido":
+            nombre_leyenda += f" ({confianza})"
+        
+        fig.add_trace(go.Scatter(
+            x=x_fechas,
+            y=y_valores,
+            mode='markers',
+            marker=dict(
+                symbol=simbolo,
+                size=10,
+                color=color,
+                line=dict(width=1, color='white')
+            ),
+            name=nombre_leyenda,
+            text=hover_texts,
+            hovertemplate='%{text}<extra></extra>',
+            legendgroup='sensores',
+            showlegend=True
+        ))
     
-    # Tick 7: FECHA ACTUAL (siempre al final)
-    tick_dates.append(ahora)
-    label_actual = ahora.strftime("%d %b")
-    for en, es in MESES_ES.items():
-        label_actual = label_actual.replace(en, es)
-    tick_labels.append(label_actual)
-    
-    fig.update_xaxes(
-        type="date",
-        range=[hace_30_dias, ahora],
-        tickmode='array',
-        tickvals=tick_dates,
-        ticktext=tick_labels,  # Usar etiquetas personalizadas
-        showgrid=True,
-        gridcolor='rgba(255,255,255,0.12)',
-        minor=dict(dtick=86400000.0, showgrid=True, gridcolor='rgba(255,255,255,0.03)'),
-        tickangle=-45,
-        fixedrange=True,
-        tickfont=dict(size=9)
-    )
-    
-    # Eje Y
+    # Configuración de ejes
     if modo_log:
         # ========================================
-        # CORRECCIÓN: Rango log desde 4.7 (como antes)
+        # CORRECCIÓN: Eje Y log desde 10^5 (0.1 MW)
         # ========================================
+        y_min_log = np.log10(1e5)  # 10^5 W = 0.1 MW
+        y_max_log = np.log10(v_max_val_watts)
+        y_max_log = max(y_max_log + 0.3, y_min_log + 1)
+        
         fig.update_yaxes(
-            type="linear",
-            range=[4.7, 9],  # log10(10^4.7) a log10(10^9)
-            tickvals=[5, 6, 7, 8],
-            ticktext=["10⁵", "10⁶", "10⁷", "10⁸"],
-            gridcolor='rgba(255,255,255,0.05)',
-            tickfont=dict(size=9),
-            autorange=False,
-            fixedrange=True
+            title=f"VRP ({unidad})",
+            range=[y_min_log, y_max_log],
+            tickvals=[5, 6, 7, 8, 9, 10],
+            ticktext=["10⁵", "10⁶", "10⁷", "10⁸", "10⁹", "10¹⁰"],
+            gridcolor='rgba(128, 128, 128, 0.2)',
+            showgrid=True
         )
     else:
-        # Escala lineal desde 0
+        # Escala lineal: desde 0
+        y_max_lineal = v_max_val
+        y_max_lineal = max(y_max_lineal * 1.1, 0.1)
+        
         fig.update_yaxes(
-            type="linear",
-            range=[0, max(1.1, v_max_val * 1.5)],
-            gridcolor='rgba(255,255,255,0.05)',
-            tickfont=dict(size=9),
-            fixedrange=True
+            title=f"VRP ({unidad})",
+            range=[0, y_max_lineal],
+            gridcolor='rgba(128, 128, 128, 0.2)',
+            showgrid=True
         )
     
-    # Etiqueta de unidad
-    fig.add_annotation(
-        xref="paper",
-        yref="paper",
-        x=-0.01,
-        y=1.15,
-        text=f"<b>{unidad}</b>",
-        showarrow=False,
-        font=dict(size=10, color="white"),
-        xanchor="right"
+    fig.update_xaxes(
+        title="Fecha (Hora Chile)",
+        gridcolor='rgba(128, 128, 128, 0.2)',
+        showgrid=True,
+        tickformat='%d-%b'
     )
     
-    # Anotación MAX con ajuste de posición
+    # Título con última actualización
+    titulo = f"{v} - Últimos 30 días"
     if not df_v_30.empty:
-        max_r = df_v_30.loc[df_v_30['VRP_MW'].idxmax()]
-        y_pos = transform(max_r['VRP_MW'])
-        
-        fecha_max = max_r['Fecha_UTC']
-        dias_desde_inicio = (fecha_max - hace_30_dias).total_seconds() / 86400
-        proporcion_x = dias_desde_inicio / 30
-        
-        if proporcion_x > 0.85:
-            ax = -60
-        elif proporcion_x < 0.15:
-            ax = 60
-        else:
-            ax = 0
-        
-        fig.add_annotation(
-            x=fecha_max,
-            y=y_pos,
-            xref="x",
-            yref="y",
-            text=f"MÁX: {max_r['VRP_MW']:.2f} MW",
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1,
-            arrowwidth=1.5,
-            arrowcolor="white",
-            bgcolor="rgba(0,0,0,0.8)",
-            bordercolor="#58a6ff",
-            borderwidth=1,
-            font=dict(color="white", size=9),
-            ay=-40,
-            ax=ax
-        )
+        ultima_fecha = df_v_30['Fecha_Chile_temp'].max().strftime('%d-%b-%Y %H:%M')
+        titulo += f"<br><sub>Última detección: {ultima_fecha}</sub>"
     
-    # Layout
+    # ========================================
+    # FIX: Fondo NEGRO para exportar a PPT
+    # ========================================
     fig.update_layout(
-        template="plotly_dark",
-        height=300,
-        margin=dict(l=40, r=2, t=35, b=40),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="center", x=0.5, font=dict(size=9)),
-        autosize=True,
-        width=None
+        title=dict(
+            text=titulo,
+            x=0.5,
+            xanchor='center',
+            font=dict(size=18, color='white')
+        ),
+        paper_bgcolor='black',     # ✅ Fondo negro exterior
+        plot_bgcolor='#1a1a1a',    # ✅ Fondo negro gráfico
+        font=dict(color='white'),  # ✅ Texto blanco
+        hovermode='closest',
+        legend=dict(
+            bgcolor='rgba(0, 0, 0, 0.7)',
+            bordercolor='rgba(255, 255, 255, 0.3)',
+            borderwidth=1,
+            font=dict(color='white')
+        ),
+        margin=dict(l=60, r=40, t=80, b=60),
+        height=500
     )
     
     return fig
 
-def procesar():
+def main():
+    print("="*80)
+    print("📊 GENERADOR DE GRÁFICOS")
+    print("="*80)
+    
     os.makedirs(CARPETA_LINEAL, exist_ok=True)
     os.makedirs(CARPETA_LOG, exist_ok=True)
     
-    if os.path.exists(ARCHIVO_MAESTRO):
-        df = pd.read_csv(ARCHIVO_MAESTRO)
-        print(f"📊 Leyendo {ARCHIVO_MAESTRO}: {len(df)} eventos")
-    elif os.path.exists(ARCHIVO_MAESTRO_COMPLETO):
-        df = pd.read_csv(ARCHIVO_MAESTRO_COMPLETO)
-        print(f"⚠️ Maestro publicable no existe, usando completo: {len(df)} eventos")
-        
-        if not df.empty:
-            antes = len(df)
-            
-            if 'Tipo_Registro' in df.columns:
-                tipos_ok = ['ALERTA_TERMICA', 'ALERTA_TERMICA_OCR', 'EVIDENCIA_DIARIA']
-                df = df[df['Tipo_Registro'].isin(tipos_ok)].copy()
-            
-            df = df[df['VRP_MW'] > 0].copy()
-            
-            if 'Confianza_Validacion' in df.columns:
-                df = df[df['Confianza_Validacion'] != 'baja'].copy()
-            
-            print(f"   Filtrado: {antes} → {len(df)} eventos")
-    else:
-        df = pd.read_csv(ARCHIVO_POSITIVOS) if os.path.exists(ARCHIVO_POSITIVOS) else pd.DataFrame()
-        if not df.empty:
-            df['Confianza_Validacion'] = 'valido'
+    # Cargar datos
+    if not os.path.exists(ARCHIVO_POSITIVOS):
+        print(f"❌ No se encontró: {ARCHIVO_POSITIVOS}")
+        return
     
-    # ========================================
-    # CORRECCIÓN: Config para mostrar botones
-    # ========================================
-    config_lineal = {
-        'displayModeBar': True,  # Siempre visible (no solo hover)
-        'displaylogo': False,
-        'responsive': True,
-        'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
-        'toImageButtonOptions': {
-            'format': 'png',
-            'filename': 'grafico_volcan',
-            'height': 500,
-            'width': 1400,
-            'scale': 2
-        }
-    }
+    df = pd.read_csv(ARCHIVO_POSITIVOS)
+    print(f"\n📂 Cargados {len(df)} eventos de: {ARCHIVO_POSITIVOS}")
     
-    config_log = {
-        'displayModeBar': True,  # Siempre visible (no solo hover)
-        'displaylogo': False,
-        'responsive': False,
-        'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
-        'toImageButtonOptions': {
-            'format': 'png',
-            'filename': 'grafico_volcan_log',
-            'height': 500,
-            'width': 1400,
-            'scale': 2
-        }
-    }
-
+    # Mostrar nombres únicos de volcanes en CSV
+    volcanes_en_csv = df['Volcan'].unique()
+    print(f"\n🌋 Volcanes en CSV:")
+    for v_csv in sorted(volcanes_en_csv):
+        print(f"   - {v_csv}")
+    
+    # Generar gráficos
+    total_lineal = 0
+    total_log = 0
+    
     for v in VOLCANES:
-        df_v = df[df['Volcan'] == v].copy()
-        nombre_f = f"{v.replace(' ', '_')}.html"
+        print(f"\n🌋 Procesando: {v}")
         
-        for carpeta, es_log in [(CARPETA_LINEAL, False), (CARPETA_LOG, True)]:
-            fig = crear_grafico(df_v, v, modo_log=es_log)
-            path = os.path.join(carpeta, nombre_f)
+        # ========================================
+        # FIX: Buscar nombre exacto en CSV
+        # ========================================
+        df_v = df[df['Volcan'] == v].copy()
+        
+        if df_v.empty:
+            print(f"   ⚠️ No hay datos en CSV para '{v}'")
+            print(f"   💡 Verifica que el nombre coincida con scraper.py")
+            continue
+        
+        print(f"   ✅ {len(df_v)} eventos encontrados")
+        
+        # Gráfico lineal
+        fig_lineal = crear_grafico(df_v, v, modo_log=False)
+        if fig_lineal:
+            # Normalizar nombre para archivo (sin espacios ni guiones)
+            nombre_archivo = v.replace(' ', '_').replace('-', '_')
+            path_lineal = os.path.join(CARPETA_LINEAL, f"{nombre_archivo}.html")
             
-            if fig is None:
-                with open(path, "w", encoding='utf-8') as f:
-                    f.write("<body style='background:#0d1117; color:#8b949e; display:flex; align-items:center; justify-content:center; height:300px; font-family:sans-serif;'>SIN ANOMALÍA TÉRMICA</body>")
-            else:
-                config_usar = config_log if es_log else config_lineal
-                
-                html_content = fig.to_html(
-                    full_html=False,
-                    include_plotlyjs='cdn',
-                    config=config_usar
-                )
-                
-                # JavaScript para clicks
-                click_handler_js = """
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const plotDiv = document.querySelector('.plotly-graph-div');
-    if (plotDiv) {
-        plotDiv.on('plotly_click', function(data) {
-            const point = data.points[0];
-            if (point && point.customdata && point.customdata[2]) {
-                const url = point.customdata[2];
-                if (url) {
-                    window.open(url, '_blank');
+            # ========================================
+            # FIX: config para fondo negro al exportar
+            # ========================================
+            fig_lineal.write_html(
+                path_lineal,
+                config={
+                    'toImageButtonOptions': {
+                        'format': 'png',
+                        'filename': f'{nombre_archivo}_lineal',
+                        'height': 500,
+                        'width': 1200,
+                        'scale': 2
+                    },
+                    'displaylogo': False,
+                    'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
                 }
-            }
-        });
-    }
-});
-</script>
-"""
-                
-                with open(path, "w", encoding='utf-8') as f:
-                    f.write(html_content + click_handler_js)
+            )
+            
+            total_lineal += 1
+            print(f"   ✅ Gráfico lineal: {nombre_archivo}.html")
+        else:
+            print(f"   ⚠️ Sin datos en últimos 30 días (gráfico lineal)")
+        
+        # Gráfico logarítmico
+        fig_log = crear_grafico(df_v, v, modo_log=True)
+        if fig_log:
+            nombre_archivo = v.replace(' ', '_').replace('-', '_')
+            path_log = os.path.join(CARPETA_LOG, f"{nombre_archivo}.html")
+            
+            fig_log.write_html(
+                path_log,
+                config={
+                    'toImageButtonOptions': {
+                        'format': 'png',
+                        'filename': f'{nombre_archivo}_log',
+                        'height': 500,
+                        'width': 1200,
+                        'scale': 2
+                    },
+                    'displaylogo': False,
+                    'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d']
+                }
+            )
+            
+            total_log += 1
+            print(f"   ✅ Gráfico log: {nombre_archivo}.html")
+        else:
+            print(f"   ⚠️ Sin datos en últimos 30 días (gráfico log)")
+    
+    print(f"\n{'='*80}")
+    print(f"✅ PROCESO COMPLETADO")
+    print(f"{'='*80}")
+    print(f"   Gráficos lineales: {total_lineal}")
+    print(f"   Gráficos logarítmicos: {total_log}")
+    print(f"\n📁 Ubicación:")
+    print(f"   Lineal: {CARPETA_LINEAL}/")
+    print(f"   Log: {CARPETA_LOG}/")
+    print(f"{'='*80}")
 
 if __name__ == "__main__":
-    procesar()
+    main()
