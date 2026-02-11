@@ -192,7 +192,7 @@ def crear_grafico(df_v, v, modo_log=False):
             sensores_agregados.add(sensor)
 
     # ========================================
-    # FIX 1: Eje X con grid vertical + fecha actual
+    # FIX 1: Grid diario entre fechas
     # ========================================
     MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
@@ -200,10 +200,8 @@ def crear_grafico(df_v, v, modo_log=False):
         'Sep': 'Sep', 'Oct': 'Oct', 'Nov': 'Nov', 'Dec': 'Dic'
     }
     
-    # Calcular días totales
     dias_totales = (ahora - hace_30_dias).days
     
-    # Generar 6 ticks (aproximadamente cada 5 días)
     tick_dates = []
     tick_labels = []
     
@@ -217,12 +215,10 @@ def crear_grafico(df_v, v, modo_log=False):
             label_en = label_en.replace(en, es)
         tick_labels.append(label_en)
     
-    # ✅ AGREGAR FECHA ACTUAL como último tick
-    # SOLO si no está ya muy cerca del penúltimo
     ultimo_tick = tick_dates[-1]
     diferencia_horas = (ahora - ultimo_tick).total_seconds() / 3600
     
-    if diferencia_horas > 24:  # Si hay más de 1 día de diferencia
+    if diferencia_horas > 24:
         tick_dates.append(ahora)
         label_actual = ahora.strftime("%d %b")
         for en, es in MESES_ES_DICT.items():
@@ -231,15 +227,22 @@ def crear_grafico(df_v, v, modo_log=False):
     
     fig.update_xaxes(
         type="date",
-        range=[hace_30_dias, ahora + timedelta(hours=6)],  # Margen extra
+        range=[hace_30_dias, ahora + timedelta(hours=6)],
         tickmode='array',
         tickvals=tick_dates,
         ticktext=tick_labels,
         showgrid=True,
-        gridcolor='rgba(255,255,255,0.2)',  # ✅ Grid principal visible
+        gridcolor='rgba(255,255,255,0.2)',  # Grid principal (fechas)
         gridwidth=1,
+        # ✅ GRID DIARIO (líneas verticales entre fechas)
+        minor=dict(
+            dtick=86400000,  # 1 día en milisegundos
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.08)',  # Gris claro
+            gridwidth=0.5
+        ),
         tickangle=-45,
-        fixedrange=False,  # ✅ Permitir zoom/pan
+        fixedrange=False,
         tickfont=dict(size=9),
         showticklabels=True
     )
@@ -251,19 +254,19 @@ def crear_grafico(df_v, v, modo_log=False):
             tickvals=[5, 6, 7, 8],
             ticktext=["10⁵", "10⁶", "10⁷", "10⁸"],
             showgrid=True,
-            gridcolor='rgba(255,255,255,0.15)',  # ✅ Grid horizontal
+            gridcolor='rgba(255,255,255,0.15)',
             tickfont=dict(size=9),
             autorange=False,
-            fixedrange=False  # ✅ Permitir zoom
+            fixedrange=False
         )
     else:
         fig.update_yaxes(
             type="linear",
             range=[0, max(1.1, v_max_val * 1.5)],
             showgrid=True,
-            gridcolor='rgba(255,255,255,0.15)',  # ✅ Grid horizontal
+            gridcolor='rgba(255,255,255,0.15)',
             tickfont=dict(size=9),
-            fixedrange=False  # ✅ Permitir zoom
+            fixedrange=False
         )
     
     fig.add_annotation(
@@ -362,13 +365,22 @@ def procesar():
             df['Confianza_Validacion'] = 'valido'
     
     # ========================================
-    # FIX 2: Habilitar botones de zoom/pan
+    # FIX 2: Solo 3 botones (Download, Zoom, Reset)
     # ========================================
     config_lineal = {
         'displayModeBar': True,
         'displaylogo': False,
         'responsive': True,
-        'modeBarButtonsToRemove': ['lasso2d'],  # ✅ Solo remover lasso
+        'modeBarButtonsToRemove': [
+            'select2d',      # Remover select box
+            'lasso2d',       # Remover lasso
+            'pan2d',         # Remover pan
+            'zoomIn2d',      # Remover zoom in individual
+            'zoomOut2d',     # Remover zoom out individual
+            'autoScale2d',   # Remover autoscale
+            'toggleSpikelines'  # Remover spikelines
+        ],
+        # ✅ Quedan: toImage (cámara), zoom (box zoom), resetScale2d (reset)
         'toImageButtonOptions': {
             'format': 'jpeg',
             'filename': 'grafico_volcan',
@@ -382,7 +394,15 @@ def procesar():
         'displayModeBar': True,
         'displaylogo': False,
         'responsive': False,
-        'modeBarButtonsToRemove': ['lasso2d'],  # ✅ Solo remover lasso
+        'modeBarButtonsToRemove': [
+            'select2d',
+            'lasso2d',
+            'pan2d',
+            'zoomIn2d',
+            'zoomOut2d',
+            'autoScale2d',
+            'toggleSpikelines'
+        ],
         'toImageButtonOptions': {
             'format': 'jpeg',
             'filename': 'grafico_volcan_log',
@@ -418,11 +438,27 @@ def procesar():
             cfg = config_log if es_log else config_lineal
             html_base = fig.to_html(config=cfg, include_plotlyjs='cdn')
             
-            script_click = """
+            # ========================================
+            # FIX 2b: Ocultar botones hasta hover
+            # ========================================
+            script_modebar = """
+<style>
+/* Ocultar modebar por defecto */
+.modebar {
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+/* Mostrar modebar al hover sobre el gráfico */
+.plotly-graph-div:hover .modebar {
+    opacity: 1;
+}
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var plotDiv = document.getElementsByClassName('plotly-graph-div')[0];
     if (plotDiv) {
+        // Click handler para abrir carpeta
         plotDiv.on('plotly_click', function(data) {
             var point = data.points[0];
             if (point.customdata) {
@@ -437,7 +473,7 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 </body>
 """
-            html_final = html_base.replace('</body>', script_click)
+            html_final = html_base.replace('</body>', script_modebar)
             
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(html_final)
