@@ -1,41 +1,46 @@
-name: Generar Graficos
+name: Generador de Graficos
 
 on:
-  schedule:
-    - cron: '*/25 * * * *'
+  workflow_run:
+    workflows: ["Monitor Volcanico VRP"]
+    types: [completed]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pages: write
-  id-token: write
-
 concurrency:
-  group: graficos-deploy
+  group: generador-graficos
   cancel-in-progress: true
 
 jobs:
-  graficos-y-deploy:
+  pintar_y_publicar:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write
+
     steps:
-      - name: Checkout
+      - name: Checkout del repositorio
         uses: actions/checkout@v4
-      
-      - name: Setup Python
+
+      - name: Configurar Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-      
+          python-version: '3.9'
+
       - name: Instalar dependencias
         run: |
-          pip install pandas numpy plotly pytz
-      
-      - name: Generar graficos
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Preparar entorno
         run: |
-          python visualizador.py
-      
-      - name: Commit cambios
+          mkdir -p monitoreo_satelital/v_html/
+          mkdir -p monitoreo_satelital/v_html_log/
+          rm -rf monitoreo_satelital/v_html/*
+          rm -rf monitoreo_satelital/v_html_log/*
+
+      - name: Ejecutar el Visualizador
+        run: python visualizador.py
+
+      - name: Guardar en GitHub
         run: |
           git config --global user.name "VolcanoVisualizer"
           git config --global user.email "viz@volcano.com"
@@ -46,6 +51,10 @@ jobs:
           
           if ! git diff --quiet --staged; then
             git commit -m "📊 Generación automática de gráficos"
+            
+            # ========================================
+            # FIX: Pull sin rebase (más seguro)
+            # ========================================
             git pull origin main --no-rebase --strategy-option=ours || true
             
             max_retries=3
@@ -66,21 +75,5 @@ jobs:
               fi
             done
           else
-            echo "ℹ️ No hay cambios nuevos en gráficos"
+            echo "No hay cambios nuevos para subir."
           fi
-      
-      # ========================================
-      # DEPLOY A GITHUB PAGES - MIROVA-V1
-      # index.html está en RAÍZ del repositorio
-      # ========================================
-      - name: Configurar Pages
-        uses: actions/configure-pages@v4
-      
-      - name: Subir artefacto a Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: '.'  # ✅ TODO el repo (index.html en raíz)
-      
-      - name: Deploy a GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
