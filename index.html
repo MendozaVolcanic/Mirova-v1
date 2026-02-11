@@ -64,19 +64,19 @@
 
     <script>
         // ========================================
-        // FIX 1: "Peteroa" → "PlanchonPeteroa"
+        // FIX 3: Tildes corregidas
         // ========================================
         const volcanes = [
             {n: "Isluga", r: "Tarapacá"}, 
             {n: "Lascar", r: "Antofagasta"}, 
             {n: "Lastarria", r: "Antofagasta"}, 
-            {n: "PlanchonPeteroa", r: "Maule"},  // ✅ CORREGIDO
-            {n: "Nevados de Chillan", r: "Ñuble"}, 
+            {n: "PlanchonPeteroa", r: "Maule"}, 
+            {n: "Nevados de Chillán", r: "Ñuble"},  // ✅ Chillán con tilde
             {n: "Copahue", r: "Biobío"}, 
             {n: "Llaima", r: "Araucanía"}, 
             {n: "Villarrica", r: "Araucanía"}, 
             {n: "Puyehue-Cordon Caulle", r: "Los Ríos"}, 
-            {n: "Chaiten", r: "Los Lagos"}
+            {n: "Chaitén", r: "Los Lagos"}  // ✅ Chaitén con tilde
         ];
         
         let currentScale = "linear";
@@ -139,12 +139,7 @@
             volcanes.forEach(v => {
                 const card = document.createElement('div'); 
                 card.className = 'card'; 
-                
-                // ========================================
-                // FIX 2: Normalizar guiones además de espacios
-                // ========================================
-                const nF = v.n.replace(/ /g, '_').replace(/-/g, '_');  // ✅ CORREGIDO
-                
+                const nF = v.n.replace(/ /g, '_').replace(/-/g, '_');
                 const url = `monitoreo_satelital/v_html/${nF}.html?t=${ts}`;
                 
                 card.innerHTML = `
