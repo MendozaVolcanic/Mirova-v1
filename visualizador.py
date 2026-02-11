@@ -11,6 +11,10 @@ ARCHIVO_MAESTRO_COMPLETO = "monitoreo_satelital/registro_vrp_maestro.csv"
 ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
+
+# ========================================
+# FIX CRÍTICO: Nombres SIN tildes (para archivos)
+# ========================================
 VOLCANES = ["Isluga", "Lascar", "Lastarria", "PlanchonPeteroa", "Nevados de Chillan", "Copahue", "Llaima", "Villarrica", "Puyehue-Cordon Caulle", "Chaiten"]
 
 MAPA_SIMBOLOS = {"MODIS": "triangle-up", "VIIRS375": "square", "VIIRS750": "circle", "VIIRS": "circle"}
@@ -100,7 +104,6 @@ def crear_grafico(df_v, v, modo_log=False):
                     showlegend=True
                 ))
 
-    # Función para generar URLs a imágenes
     def generar_url_imagenes(row):
         ruta_foto = row.get('Ruta Foto', 'No descargada')
         
@@ -117,9 +120,6 @@ def crear_grafico(df_v, v, modo_log=False):
         
         return None
 
-    # ========================================
-    # FIX 1: Almacenar URLs para hacer clickeable
-    # ========================================
     # Traces por sensor y confianza
     for sensor in df_v_30['Sensor'].unique():
         df_sensor = df_v_30[df_v_30['Sensor'] == sensor]
@@ -135,12 +135,22 @@ def crear_grafico(df_v, v, modo_log=False):
                 continue
             
             hover_texts = []
-            customdata_urls = []  # ✅ Lista de URLs para customdata
+            customdata_urls = []
             
             for _, row in df_grupo.iterrows():
                 url_github = generar_url_imagenes(row)
                 
-                # Hover text (mostrar link)
+                # ========================================
+                # FIX 3: Agregar fuente (OCR o Latest)
+                # ========================================
+                tipo_registro = row.get('Tipo_Registro', 'N/A')
+                if 'OCR' in tipo_registro:
+                    fuente = "OCR"
+                elif 'ALERTA_TERMICA' in tipo_registro:
+                    fuente = "Latest.php"
+                else:
+                    fuente = "N/A"
+                
                 if url_github:
                     hover_texts.append(
                         f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
@@ -148,6 +158,7 @@ def crear_grafico(df_v, v, modo_log=False):
                         f"{row['Sensor']}<br>"
                         f"Dist: {row['Distancia_km']:.1f} km<br>"
                         f"Conf: {row.get('Confianza_Validacion', 'N/A')}<br>"
+                        f"Fuente: {fuente}<br>"  # ✅ Agregado
                         f"<i>Click para ver carpeta</i>"
                     )
                     customdata_urls.append(url_github)
@@ -157,7 +168,8 @@ def crear_grafico(df_v, v, modo_log=False):
                         f"{row['VRP_MW']:.2f} MW<br>"
                         f"{row['Sensor']}<br>"
                         f"Dist: {row['Distancia_km']:.1f} km<br>"
-                        f"Conf: {row.get('Confianza_Validacion', 'N/A')}"
+                        f"Conf: {row.get('Confianza_Validacion', 'N/A')}<br>"
+                        f"Fuente: {fuente}"  # ✅ Agregado
                     )
                     customdata_urls.append(None)
             
@@ -176,12 +188,12 @@ def crear_grafico(df_v, v, modo_log=False):
                 ),
                 hovertemplate='%{text}<extra></extra>',
                 text=hover_texts,
-                customdata=customdata_urls,  # ✅ Almacenar URLs
+                customdata=customdata_urls,
                 showlegend=True
             ))
 
     # ========================================
-    # FIX 2: Fecha actual en eje X (CORREGIDO)
+    # FIX 2: Fecha actual FORZADA en eje X
     # ========================================
     MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
@@ -192,16 +204,9 @@ def crear_grafico(df_v, v, modo_log=False):
     tick_dates = []
     tick_labels = []
     
-    # Calcular días transcurridos desde hace_30_dias hasta ahora
-    dias_totales = (ahora - hace_30_dias).days
-    
-    # Generar ticks cada ~5 días
-    # Si han pasado 30 días: 0, 5, 10, 15, 20, 25, 30
-    num_ticks_intermedios = 6  # 6 ticks + fecha actual = 7 total
-    
-    for i in range(num_ticks_intermedios):
-        dias_offset = int((dias_totales / num_ticks_intermedios) * i)
-        fecha = hace_30_dias + timedelta(days=dias_offset)
+    # Generar ticks FIJOS cada 5 días desde hace_30_dias
+    for dias in [0, 5, 10, 15, 20, 25]:
+        fecha = hace_30_dias + timedelta(days=dias)
         tick_dates.append(fecha)
         
         label_en = fecha.strftime("%d %b")
@@ -209,7 +214,7 @@ def crear_grafico(df_v, v, modo_log=False):
             label_en = label_en.replace(en, es)
         tick_labels.append(label_en)
     
-    # ✅ TICK FINAL: FECHA ACTUAL (hoy)
+    # ✅ FORZAR tick final = AHORA
     tick_dates.append(ahora)
     label_actual = ahora.strftime("%d %b")
     for en, es in MESES_ES_DICT.items():
@@ -251,7 +256,6 @@ def crear_grafico(df_v, v, modo_log=False):
             fixedrange=True
         )
     
-    # Etiqueta de unidad
     fig.add_annotation(
         xref="paper",
         yref="paper",
@@ -263,7 +267,6 @@ def crear_grafico(df_v, v, modo_log=False):
         xanchor="right"
     )
     
-    # Anotación MAX
     if not df_v_30.empty:
         max_r = df_v_30.loc[df_v_30['VRP_MW'].idxmax()]
         y_pos = transform(max_r['VRP_MW'])
@@ -298,7 +301,6 @@ def crear_grafico(df_v, v, modo_log=False):
             ax=ax
         )
     
-    # Layout
     fig.update_layout(
         template="plotly_dark",
         height=300,
@@ -401,13 +403,8 @@ def procesar():
                 continue
             
             cfg = config_log if es_log else config_lineal
-            
-            # ========================================
-            # FIX 1: Agregar JavaScript para clicks
-            # ========================================
             html_base = fig.to_html(config=cfg, include_plotlyjs='cdn')
             
-            # Inyectar JavaScript para manejar clicks
             script_click = """
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -432,7 +429,6 @@ document.addEventListener('DOMContentLoaded', function() {
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(html_final)
 
-    # Estado del sistema
     ahora_utc = datetime.now(pytz.UTC)
     estado = {
         "estado": "✅ Operativo",
