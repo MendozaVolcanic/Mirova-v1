@@ -117,6 +117,9 @@ def crear_grafico(df_v, v, modo_log=False):
         
         return None
 
+    # ========================================
+    # FIX 1: Almacenar URLs para hacer clickeable
+    # ========================================
     # Traces por sensor y confianza
     for sensor in df_v_30['Sensor'].unique():
         df_sensor = df_v_30[df_v_30['Sensor'] == sensor]
@@ -132,30 +135,39 @@ def crear_grafico(df_v, v, modo_log=False):
                 continue
             
             hover_texts = []
+            customdata_urls = []  # ✅ Lista de URLs para customdata
+            
             for _, row in df_grupo.iterrows():
                 url_github = generar_url_imagenes(row)
-                link_html = f"<br><a href='{url_github}' target='_blank' style='color:#58a6ff;'>Ver carpeta</a>" if url_github else ""
                 
-                hover_texts.append(
-                    f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
-                    f"{row['VRP_MW']:.2f} MW<br>"
-                    f"{row['Sensor']}<br>"
-                    f"Dist: {row['Distancia_km']:.1f} km<br>"
-                    f"Conf: {row.get('Confianza_Validacion', 'N/A')}"
-                    f"{link_html}"
-                )
+                # Hover text (mostrar link)
+                if url_github:
+                    hover_texts.append(
+                        f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
+                        f"{row['VRP_MW']:.2f} MW<br>"
+                        f"{row['Sensor']}<br>"
+                        f"Dist: {row['Distancia_km']:.1f} km<br>"
+                        f"Conf: {row.get('Confianza_Validacion', 'N/A')}<br>"
+                        f"<i>Click para ver carpeta</i>"
+                    )
+                    customdata_urls.append(url_github)
+                else:
+                    hover_texts.append(
+                        f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
+                        f"{row['VRP_MW']:.2f} MW<br>"
+                        f"{row['Sensor']}<br>"
+                        f"Dist: {row['Distancia_km']:.1f} km<br>"
+                        f"Conf: {row.get('Confianza_Validacion', 'N/A')}"
+                    )
+                    customdata_urls.append(None)
             
             df_grupo['VRP_Transformed'] = df_grupo['VRP_MW'].apply(transform)
             
-            # ========================================
-            # FIX 5: Remover "(Alta)" "(Media)" de leyenda
-            # Solo mostrar nombre del sensor
-            # ========================================
             fig.add_trace(go.Scatter(
                 x=df_grupo['Fecha_UTC'],
                 y=df_grupo['VRP_Transformed'],
                 mode='markers',
-                name=sensor,  # ✅ Sin "(Alta)" o "(Media)"
+                name=sensor,
                 marker=dict(
                     size=6,
                     symbol=MAPA_SIMBOLOS.get(sensor, 'circle'),
@@ -164,11 +176,12 @@ def crear_grafico(df_v, v, modo_log=False):
                 ),
                 hovertemplate='%{text}<extra></extra>',
                 text=hover_texts,
+                customdata=customdata_urls,  # ✅ Almacenar URLs
                 showlegend=True
             ))
 
     # ========================================
-    # FIX 3: Agregar fecha actual al final del eje X
+    # FIX 2: Fecha actual en eje X (CORREGIDO)
     # ========================================
     MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
@@ -179,9 +192,16 @@ def crear_grafico(df_v, v, modo_log=False):
     tick_dates = []
     tick_labels = []
     
-    # Ticks cada 5 días
-    for i in [0, 5, 10, 15, 20, 25]:
-        fecha = hace_30_dias + timedelta(days=i)
+    # Calcular días transcurridos desde hace_30_dias hasta ahora
+    dias_totales = (ahora - hace_30_dias).days
+    
+    # Generar ticks cada ~5 días
+    # Si han pasado 30 días: 0, 5, 10, 15, 20, 25, 30
+    num_ticks_intermedios = 6  # 6 ticks + fecha actual = 7 total
+    
+    for i in range(num_ticks_intermedios):
+        dias_offset = int((dias_totales / num_ticks_intermedios) * i)
+        fecha = hace_30_dias + timedelta(days=dias_offset)
         tick_dates.append(fecha)
         
         label_en = fecha.strftime("%d %b")
@@ -189,7 +209,7 @@ def crear_grafico(df_v, v, modo_log=False):
             label_en = label_en.replace(en, es)
         tick_labels.append(label_en)
     
-    # ✅ Tick final: FECHA ACTUAL
+    # ✅ TICK FINAL: FECHA ACTUAL (hoy)
     tick_dates.append(ahora)
     label_actual = ahora.strftime("%d %b")
     for en, es in MESES_ES_DICT.items():
@@ -286,16 +306,13 @@ def crear_grafico(df_v, v, modo_log=False):
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         showlegend=True,
-        # ========================================
-        # FIX 4: Aumentar tamaño de letra de leyenda
-        # ========================================
         legend=dict(
             orientation="h", 
             yanchor="bottom", 
             y=1.03, 
             xanchor="center", 
             x=0.5, 
-            font=dict(size=11)  # ✅ Era 9, ahora 11
+            font=dict(size=11)
         ),
         autosize=True,
         width=None
@@ -332,10 +349,6 @@ def procesar():
         if not df.empty:
             df['Confianza_Validacion'] = 'valido'
     
-    # ========================================
-    # FIX 1: Habilitar clicks en hover (customdata)
-    # FIX 2: JPEG con fondo negro (ya corregido)
-    # ========================================
     config_lineal = {
         'displayModeBar': True,
         'displaylogo': False,
@@ -388,10 +401,36 @@ def procesar():
                 continue
             
             cfg = config_log if es_log else config_lineal
-            html_str = fig.to_html(config=cfg, include_plotlyjs='cdn')
+            
+            # ========================================
+            # FIX 1: Agregar JavaScript para clicks
+            # ========================================
+            html_base = fig.to_html(config=cfg, include_plotlyjs='cdn')
+            
+            # Inyectar JavaScript para manejar clicks
+            script_click = """
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var plotDiv = document.getElementsByClassName('plotly-graph-div')[0];
+    if (plotDiv) {
+        plotDiv.on('plotly_click', function(data) {
+            var point = data.points[0];
+            if (point.customdata) {
+                var url = point.customdata;
+                if (url) {
+                    window.open(url, '_blank');
+                }
+            }
+        });
+    }
+});
+</script>
+</body>
+"""
+            html_final = html_base.replace('</body>', script_click)
             
             with open(path, 'w', encoding='utf-8') as f:
-                f.write(html_str)
+                f.write(html_final)
 
     # Estado del sistema
     ahora_utc = datetime.now(pytz.UTC)
