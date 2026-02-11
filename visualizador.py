@@ -11,10 +11,6 @@ ARCHIVO_MAESTRO_COMPLETO = "monitoreo_satelital/registro_vrp_maestro.csv"
 ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
-
-# ========================================
-# FIX 1: "Peteroa" → "PlanchonPeteroa"
-# ========================================
 VOLCANES = ["Isluga", "Lascar", "Lastarria", "PlanchonPeteroa", "Nevados de Chillan", "Copahue", "Llaima", "Villarrica", "Puyehue-Cordon Caulle", "Chaiten"]
 
 MAPA_SIMBOLOS = {"MODIS": "triangle-up", "VIIRS375": "square", "VIIRS750": "circle", "VIIRS": "circle"}
@@ -27,17 +23,12 @@ COLORES_CONFIANZA = {
 }
 MESES_ES = {1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun", 7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"}
 
-# ========================================
-# CORRECCIÓN: Bandas correctas
-# - Escala lineal: desde 0 MW
-# - Escala log: desde 10^5 W (0.1 MW)
-# ========================================
 MIROVA_BANDS = [
-    (0,     1e6,  "Muy Bajo", "rgba(128, 128, 128, 0.2)"),   # Gris: 0-1 MW (lineal) | 10^5-10^6 W (log)
-    (1e6,   1e7,  "Bajo",     "rgba(34, 139, 34, 0.15)"),    # Verde: 1-10 MW
-    (1e7,   1e8,  "Moderado", "rgba(255, 215, 0, 0.15)"),    # Amarillo: 10-100 MW
-    (1e8,   1e9,  "Alto",     "rgba(255, 140, 0, 0.15)"),    # Naranja: 100-1000 MW
-    (1e9,   1e10, "Muy Alto", "rgba(220, 20, 60, 0.15)")     # Rojo: 1000+ MW
+    (0,     1e6,  "Muy Bajo", "rgba(128, 128, 128, 0.2)"),
+    (1e6,   1e7,  "Bajo",     "rgba(34, 139, 34, 0.15)"),
+    (1e7,   1e8,  "Moderado", "rgba(255, 215, 0, 0.15)"),
+    (1e8,   1e9,  "Alto",     "rgba(255, 140, 0, 0.15)"),
+    (1e9,   1e10, "Muy Alto", "rgba(220, 20, 60, 0.15)")
 ]
 
 def crear_grafico(df_v, v, modo_log=False):
@@ -58,17 +49,11 @@ def crear_grafico(df_v, v, modo_log=False):
     fig = go.Figure()
     v_max_val = df_v_30['VRP_MW'].max()
     
-    # ========================================
-    # CORRECCIÓN: Transform diferenciado
-    # ========================================
     def transform(val_mw):
         if modo_log:
             watts = val_mw * 1e6
-            # Escala log: mínimo 10^4 (0.01 MW)
-            # Valores < 10^4 quedan fuera de rango visible
             return np.log10(max(watts, 1e4))
         else:
-            # Escala lineal: desde 0
             return val_mw
     
     v_max_val_watts = v_max_val * 1e6
@@ -76,27 +61,18 @@ def crear_grafico(df_v, v, modo_log=False):
     # Bandas de color
     for y0, y1, label, color in MIROVA_BANDS:
         if modo_log:
-            # ========================================
-            # CORRECCIÓN: Escala log desde 10^5
-            # ========================================
-            # Primera banda (gris): 10^5 a 10^6
-            # Si y0 = 0, usar 10^5 (50,000 W = 0.05 MW)
             if y0 == 0:
-                l_y0 = np.log10(1e5)  # 10^5 = 5
+                l_y0 = np.log10(1e5)
             else:
                 l_y0 = np.log10(max(y0, 1e5))
-            
             l_y1 = np.log10(y1)
         else:
-            # Escala lineal: desde 0
             l_y0 = y0 / 1e6
             l_y1 = y1 / 1e6
         
         fig.add_hrect(y0=l_y0, y1=l_y1, fillcolor=color, line_width=0, layer="below")
         
-        # Mostrar en leyenda si hay datos en ese rango
         if modo_log:
-            # Para log, verificar desde 10^5
             rango_inicio = 1e5 if y0 == 0 else y0
             if v_max_val_watts >= rango_inicio:
                 fig.add_trace(go.Scatter(
@@ -111,7 +87,6 @@ def crear_grafico(df_v, v, modo_log=False):
                     showlegend=True
                 ))
         else:
-            # Para lineal, desde 0
             if v_max_val_watts >= y0:
                 fig.add_trace(go.Scatter(
                     x=[None], y=[None],
@@ -136,10 +111,7 @@ def crear_grafico(df_v, v, modo_log=False):
         if len(partes) >= 4:
             volcan_carpeta = partes[1]
             fecha_carpeta = partes[2]
-            
-            # Normalizar nombre (Puyehue-Cordon Caulle → Puyehue_Cordon_Caulle)
             volcan_normalizado = volcan_carpeta.replace('-', '_').replace(' ', '_')
-            
             url_github = f"https://github.com/MendozaVolcanic/Mirova-v1/tree/main/monitoreo_satelital/imagenes_satelitales/{volcan_normalizado}/{fecha_carpeta}"
             return url_github
         
@@ -175,17 +147,15 @@ def crear_grafico(df_v, v, modo_log=False):
             
             df_grupo['VRP_Transformed'] = df_grupo['VRP_MW'].apply(transform)
             
-            # Etiqueta de confianza
-            if confianza != 'N/A':
-                label_conf = f"({confianza.capitalize()})"
-            else:
-                label_conf = ""
-            
+            # ========================================
+            # FIX 5: Remover "(Alta)" "(Media)" de leyenda
+            # Solo mostrar nombre del sensor
+            # ========================================
             fig.add_trace(go.Scatter(
                 x=df_grupo['Fecha_UTC'],
                 y=df_grupo['VRP_Transformed'],
                 mode='markers',
-                name=f"{sensor} {label_conf}".strip(),
+                name=sensor,  # ✅ Sin "(Alta)" o "(Media)"
                 marker=dict(
                     size=6,
                     symbol=MAPA_SIMBOLOS.get(sensor, 'circle'),
@@ -198,32 +168,31 @@ def crear_grafico(df_v, v, modo_log=False):
             ))
 
     # ========================================
-    # FIX DEFINITIVO: Eje X - 7 ticks con fecha actual
+    # FIX 3: Agregar fecha actual al final del eje X
     # ========================================
-    MESES_ES = {
+    MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
         'May': 'May', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
         'Sep': 'Sep', 'Oct': 'Oct', 'Nov': 'Nov', 'Dec': 'Dic'
     }
     
-    # Generar exactamente 7 ticks: días 0, 5, 10, 15, 20, 25, HOY
     tick_dates = []
     tick_labels = []
     
-    # Ticks intermedios: 0, 5, 10, 15, 20, 25
+    # Ticks cada 5 días
     for i in [0, 5, 10, 15, 20, 25]:
         fecha = hace_30_dias + timedelta(days=i)
         tick_dates.append(fecha)
         
         label_en = fecha.strftime("%d %b")
-        for en, es in MESES_ES.items():
+        for en, es in MESES_ES_DICT.items():
             label_en = label_en.replace(en, es)
         tick_labels.append(label_en)
     
-    # Tick 7: FECHA ACTUAL (siempre al final)
+    # ✅ Tick final: FECHA ACTUAL
     tick_dates.append(ahora)
     label_actual = ahora.strftime("%d %b")
-    for en, es in MESES_ES.items():
+    for en, es in MESES_ES_DICT.items():
         label_actual = label_actual.replace(en, es)
     tick_labels.append(label_actual)
     
@@ -232,7 +201,7 @@ def crear_grafico(df_v, v, modo_log=False):
         range=[hace_30_dias, ahora],
         tickmode='array',
         tickvals=tick_dates,
-        ticktext=tick_labels,  # Usar etiquetas personalizadas
+        ticktext=tick_labels,
         showgrid=True,
         gridcolor='rgba(255,255,255,0.12)',
         minor=dict(dtick=86400000.0, showgrid=True, gridcolor='rgba(255,255,255,0.03)'),
@@ -243,12 +212,9 @@ def crear_grafico(df_v, v, modo_log=False):
     
     # Eje Y
     if modo_log:
-        # ========================================
-        # CORRECCIÓN: Rango log desde 4.7 (como antes)
-        # ========================================
         fig.update_yaxes(
             type="linear",
-            range=[4.7, 9],  # log10(10^4.7) a log10(10^9)
+            range=[4.7, 9],
             tickvals=[5, 6, 7, 8],
             ticktext=["10⁵", "10⁶", "10⁷", "10⁸"],
             gridcolor='rgba(255,255,255,0.05)',
@@ -257,7 +223,6 @@ def crear_grafico(df_v, v, modo_log=False):
             fixedrange=True
         )
     else:
-        # Escala lineal desde 0
         fig.update_yaxes(
             type="linear",
             range=[0, max(1.1, v_max_val * 1.5)],
@@ -278,7 +243,7 @@ def crear_grafico(df_v, v, modo_log=False):
         xanchor="right"
     )
     
-    # Anotación MAX con ajuste de posición
+    # Anotación MAX
     if not df_v_30.empty:
         max_r = df_v_30.loc[df_v_30['VRP_MW'].idxmax()]
         y_pos = transform(max_r['VRP_MW'])
@@ -321,7 +286,17 @@ def crear_grafico(df_v, v, modo_log=False):
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="center", x=0.5, font=dict(size=9)),
+        # ========================================
+        # FIX 4: Aumentar tamaño de letra de leyenda
+        # ========================================
+        legend=dict(
+            orientation="h", 
+            yanchor="bottom", 
+            y=1.03, 
+            xanchor="center", 
+            x=0.5, 
+            font=dict(size=11)  # ✅ Era 9, ahora 11
+        ),
         autosize=True,
         width=None
     )
@@ -358,7 +333,8 @@ def procesar():
             df['Confianza_Validacion'] = 'valido'
     
     # ========================================
-    # FIX 2: 'png' → 'jpeg' para fondo negro
+    # FIX 1: Habilitar clicks en hover (customdata)
+    # FIX 2: JPEG con fondo negro (ya corregido)
     # ========================================
     config_lineal = {
         'displayModeBar': True,
@@ -366,7 +342,7 @@ def procesar():
         'responsive': True,
         'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
         'toImageButtonOptions': {
-            'format': 'jpeg',  # ✅ CORREGIDO
+            'format': 'jpeg',
             'filename': 'grafico_volcan',
             'height': 500,
             'width': 1400,
@@ -380,7 +356,7 @@ def procesar():
         'responsive': False,
         'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
         'toImageButtonOptions': {
-            'format': 'jpeg',  # ✅ CORREGIDO
+            'format': 'jpeg',
             'filename': 'grafico_volcan_log',
             'height': 500,
             'width': 1400,
