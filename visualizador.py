@@ -14,8 +14,6 @@ CARPETA_LOG = "monitoreo_satelital/v_html_log"
 
 # ========================================
 # FIX: Nombres consistentes con scraper.py y CSVs
-# - "PlanchonPeteroa" (NO "Peteroa")
-# - "Puyehue-Cordon Caulle" (con guión)
 # ========================================
 VOLCANES = [
     "Isluga", "Lascar", "Lastarria",
@@ -27,32 +25,22 @@ VOLCANES = [
 
 MAPA_SIMBOLOS = {"MODIS": "triangle-up", "VIIRS375": "square", "VIIRS750": "circle", "VIIRS": "circle"}
 
-# ========================================
-# FIX: Sistema unificado de confianzas
-# - 'alta' (antes 'valido' y 'N/A')
-# - 'media', 'baja'
-# ========================================
 COLORES_CONFIANZA = {
-    "N/A": "#2ea043",      # Legacy (por si hay datos antiguos)
-    "valido": "#2ea043",   # Legacy (por si hay datos antiguos)
-    "alta": "#2ea043",     # ✅ Verde - Confiable
-    "media": "#d29922",    # ✅ Amarillo - Requiere verificación
-    "baja": "#fb8500"      # ✅ Naranja - Dudoso
+    "N/A": "#2ea043",
+    "valido": "#2ea043",
+    "alta": "#2ea043",
+    "media": "#d29922",
+    "baja": "#fb8500"
 }
 
 MESES_ES = {1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun", 7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"}
 
-# ========================================
-# CORRECCIÓN: Bandas correctas
-# - Escala lineal: desde 0 MW
-# - Escala log: desde 10^5 W (0.1 MW)
-# ========================================
 MIROVA_BANDS = [
-    (0,     1e6,  "Muy Bajo", "rgba(128, 128, 128, 0.2)"),   # Gris: 0-1 MW (lineal) | 10^5-10^6 W (log)
-    (1e6,   1e7,  "Bajo",     "rgba(34, 139, 34, 0.15)"),    # Verde: 1-10 MW
-    (1e7,   1e8,  "Moderado", "rgba(255, 215, 0, 0.15)"),    # Amarillo: 10-100 MW
-    (1e8,   1e9,  "Alto",     "rgba(255, 140, 0, 0.15)"),    # Naranja: 100-1000 MW
-    (1e9,   1e10, "Muy Alto", "rgba(220, 20, 60, 0.15)")     # Rojo: 1000+ MW
+    (0,     1e6,  "Muy Bajo", "rgba(128, 128, 128, 0.2)"),
+    (1e6,   1e7,  "Bajo",     "rgba(34, 139, 34, 0.15)"),
+    (1e7,   1e8,  "Moderado", "rgba(255, 215, 0, 0.15)"),
+    (1e8,   1e9,  "Alto",     "rgba(255, 140, 0, 0.15)"),
+    (1e9,   1e10, "Muy Alto", "rgba(220, 20, 60, 0.15)")
 ]
 
 def crear_grafico(df_v, v, modo_log=False):
@@ -73,9 +61,6 @@ def crear_grafico(df_v, v, modo_log=False):
     fig = go.Figure()
     v_max_val = df_v_30['VRP_MW'].max()
     
-    # ========================================
-    # CORRECCIÓN: Transform diferenciado
-    # ========================================
     def transform(val_mw):
         if modo_log:
             watts = val_mw * 1e6
@@ -92,7 +77,6 @@ def crear_grafico(df_v, v, modo_log=False):
                 l_y0 = np.log10(1e5)
             else:
                 l_y0 = np.log10(max(y0, 1e5))
-            
             l_y1 = np.log10(y1)
         else:
             l_y0 = y0 / 1e6
@@ -100,7 +84,6 @@ def crear_grafico(df_v, v, modo_log=False):
         
         fig.add_hrect(y0=l_y0, y1=l_y1, fillcolor=color, line_width=0, layer="below")
         
-        # Mostrar en leyenda si hay datos en ese rango
         if modo_log:
             rango_inicio = 1e5 if y0 == 0 else y0
             if v_max_val_watts >= rango_inicio:
@@ -127,32 +110,29 @@ def crear_grafico(df_v, v, modo_log=False):
                 ))
     
     # ========================================
-    # FIX CRÍTICO: Confianza_Validacion OPCIONAL
+    # FIX CRÍTICO: ValueError "not enough values to unpack"
     # ========================================
     tiene_confianza = 'Confianza_Validacion' in df_v_30.columns
     
     if tiene_confianza:
-        # Agrupar por sensor Y confianza
         grupos = df_v_30.groupby(['Sensor', 'Confianza_Validacion'])
     else:
-        # Solo agrupar por sensor (modo legacy)
         grupos = df_v_30.groupby(['Sensor'])
     
     for grupo_key, grupo in grupos:
-        # Manejar tanto tuplas (Sensor, Confianza) como strings (solo Sensor)
-        if isinstance(grupo_key, tuple):
+        # ========================================
+        # FIX: Desempaquetar correctamente según tipo
+        # ========================================
+        if tiene_confianza:
+            # grupo_key es tupla (Sensor, Confianza)
             sensor, confianza = grupo_key
         else:
+            # grupo_key es string (solo Sensor)
             sensor = grupo_key
             confianza = None
         
         simbolo = MAPA_SIMBOLOS.get(sensor, "circle")
-        
-        # Color según confianza (si existe)
-        if confianza:
-            color = COLORES_CONFIANZA.get(confianza, "#808080")
-        else:
-            color = "#2ea043"  # Verde por defecto
+        color = COLORES_CONFIANZA.get(confianza, "#2ea043") if confianza else "#2ea043"
         
         x_fechas = grupo['Fecha_Chile_temp']
         y_valores = grupo['VRP_MW'].apply(transform)
@@ -164,19 +144,13 @@ def crear_grafico(df_v, v, modo_log=False):
             vrp_mw = row['VRP_MW']
             vrp_w = int(vrp_mw * 1e6)
             
-            # Formatear VRP según escala
             if modo_log:
                 vrp_display = f"{vrp_w:,} W"
             else:
                 vrp_display = f"{vrp_mw:.2f} MW"
             
             dist_km = row.get('Distancia_km', 0)
-            
-            # Confianza solo si existe
-            if tiene_confianza and confianza:
-                conf_texto = confianza
-            else:
-                conf_texto = "N/A"
+            conf_texto = confianza if confianza else "N/A"
             
             hover_texts.append(
                 f"<b>{fecha_chile}</b><br>" +
@@ -188,7 +162,7 @@ def crear_grafico(df_v, v, modo_log=False):
         
         # Nombre de leyenda
         nombre_leyenda = f"{sensor}"
-        if tiene_confianza and confianza and confianza not in ["N/A", "valido"]:
+        if confianza and confianza not in ["N/A", "valido"]:
             nombre_leyenda += f" ({confianza})"
         
         fig.add_trace(go.Scatter(
@@ -240,14 +214,14 @@ def crear_grafico(df_v, v, modo_log=False):
         tickformat='%d-%b'
     )
     
-    # Título con última actualización
+    # Título
     titulo = f"{v} - Últimos 30 días"
     if not df_v_30.empty:
         ultima_fecha = df_v_30['Fecha_Chile_temp'].max().strftime('%d-%b-%Y %H:%M')
         titulo += f"<br><sub>Última detección: {ultima_fecha}</sub>"
     
     # ========================================
-    # FIX: Fondo NEGRO para exportar a PPT
+    # FIX: Fondo NEGRO real para exportar
     # ========================================
     fig.update_layout(
         title=dict(
@@ -256,9 +230,9 @@ def crear_grafico(df_v, v, modo_log=False):
             xanchor='center',
             font=dict(size=18, color='white')
         ),
-        paper_bgcolor='black',     # ✅ Fondo negro exterior
-        plot_bgcolor='#1a1a1a',    # ✅ Fondo negro gráfico
-        font=dict(color='white'),  # ✅ Texto blanco
+        paper_bgcolor='black',
+        plot_bgcolor='#1a1a1a',
+        font=dict(color='white'),
         hovermode='closest',
         legend=dict(
             bgcolor='rgba(0, 0, 0, 0.7)',
@@ -280,7 +254,6 @@ def main():
     os.makedirs(CARPETA_LINEAL, exist_ok=True)
     os.makedirs(CARPETA_LOG, exist_ok=True)
     
-    # Cargar datos
     if not os.path.exists(ARCHIVO_POSITIVOS):
         print(f"❌ No se encontró: {ARCHIVO_POSITIVOS}")
         return
@@ -288,34 +261,27 @@ def main():
     df = pd.read_csv(ARCHIVO_POSITIVOS)
     print(f"\n📂 Cargados {len(df)} eventos de: {ARCHIVO_POSITIVOS}")
     
-    # Mostrar nombres únicos de volcanes en CSV
     volcanes_en_csv = df['Volcan'].unique()
     print(f"\n🌋 Volcanes en CSV:")
     for v_csv in sorted(volcanes_en_csv):
         print(f"   - {v_csv}")
     
-    # Verificar si existe columna Confianza_Validacion
     tiene_confianza_csv = 'Confianza_Validacion' in df.columns
     if tiene_confianza_csv:
         print(f"\n✅ Columna 'Confianza_Validacion' detectada")
     else:
         print(f"\n⚠️ Columna 'Confianza_Validacion' NO existe (modo legacy)")
     
-    # Generar gráficos
     total_lineal = 0
     total_log = 0
     
     for v in VOLCANES:
         print(f"\n🌋 Procesando: {v}")
         
-        # ========================================
-        # FIX: Buscar nombre exacto en CSV
-        # ========================================
         df_v = df[df['Volcan'] == v].copy()
         
         if df_v.empty:
             print(f"   ⚠️ No hay datos en CSV para '{v}'")
-            print(f"   💡 Verifica que el nombre coincida con scraper.py")
             continue
         
         print(f"   ✅ {len(df_v)} eventos encontrados")
@@ -323,18 +289,17 @@ def main():
         # Gráfico lineal
         fig_lineal = crear_grafico(df_v, v, modo_log=False)
         if fig_lineal:
-            # Normalizar nombre para archivo (sin espacios ni guiones)
             nombre_archivo = v.replace(' ', '_').replace('-', '_')
             path_lineal = os.path.join(CARPETA_LINEAL, f"{nombre_archivo}.html")
             
             # ========================================
-            # FIX: config para fondo negro al exportar
+            # FIX: Exportar como JPEG (sin transparencia)
             # ========================================
             fig_lineal.write_html(
                 path_lineal,
                 config={
                     'toImageButtonOptions': {
-                        'format': 'png',
+                        'format': 'jpeg',  # ✅ JPEG en lugar de PNG
                         'filename': f'{nombre_archivo}_lineal',
                         'height': 500,
                         'width': 1200,
@@ -360,7 +325,7 @@ def main():
                 path_log,
                 config={
                     'toImageButtonOptions': {
-                        'format': 'png',
+                        'format': 'jpeg',  # ✅ JPEG en lugar de PNG
                         'filename': f'{nombre_archivo}_log',
                         'height': 500,
                         'width': 1200,
