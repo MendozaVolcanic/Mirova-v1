@@ -15,20 +15,16 @@ VOLCANES = ["Isluga", "Lascar", "Lastarria", "PlanchonPeteroa", "Nevados de Chil
 
 MAPA_SIMBOLOS = {"MODIS": "triangle-up", "VIIRS375": "square", "VIIRS750": "circle", "VIIRS": "circle"}
 
-# ========================================
-# FIX 2: Un solo color por sensor
-# ========================================
 COLORES_SENSOR = {
-    "MODIS": "#2ea043",       # Verde (único color)
-    "VIIRS375": "#2ea043",    # Verde (único color)
-    "VIIRS": "#2ea043",       # Verde (único color)
-    "VIIRS750": "#2ea043"     # Verde (único color)
+    "MODIS": "#2ea043",
+    "VIIRS375": "#2ea043",
+    "VIIRS": "#2ea043",
+    "VIIRS750": "#2ea043"
 }
 
-# Colores de confianza SOLO para puntos que NO son alta/válido
 COLORES_CONFIANZA_ESPECIAL = {
-    "media": "#d29922",  # Amarillo
-    "baja": "#fb8500"    # Naranja
+    "media": "#d29922",
+    "baja": "#fb8500"
 }
 
 MESES_ES = {1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun", 7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"}
@@ -68,7 +64,6 @@ def crear_grafico(df_v, v, modo_log=False):
     
     v_max_val_watts = v_max_val * 1e6
     
-    # Bandas de color
     for y0, y1, label, color in MIROVA_BANDS:
         if modo_log:
             if y0 == 0:
@@ -126,11 +121,7 @@ def crear_grafico(df_v, v, modo_log=False):
         
         return None
 
-    # ========================================
-    # FIX 2: Agrupar solo por sensor (no por confianza)
-    # Mostrar un solo trace verde por sensor
-    # ========================================
-    sensores_agregados = set()  # Para evitar duplicados en leyenda
+    sensores_agregados = set()
     
     for sensor in df_v_30['Sensor'].unique():
         df_sensor = df_v_30[df_v_30['Sensor'] == sensor]
@@ -174,7 +165,6 @@ def crear_grafico(df_v, v, modo_log=False):
                 )
                 customdata_urls.append(None)
             
-            # Color del punto: verde si alta/válido, amarillo/naranja si media/baja
             if confianza in ['alta', 'valido', 'N/A']:
                 colores_puntos.append(COLORES_SENSOR[sensor])
             else:
@@ -182,17 +172,16 @@ def crear_grafico(df_v, v, modo_log=False):
         
         df_sensor['VRP_Transformed'] = df_sensor['VRP_MW'].apply(transform)
         
-        # Un solo trace por sensor (no duplicar por confianza)
         if sensor not in sensores_agregados:
             fig.add_trace(go.Scatter(
                 x=df_sensor['Fecha_UTC'],
                 y=df_sensor['VRP_Transformed'],
                 mode='markers',
-                name=sensor,  # Solo nombre del sensor
+                name=sensor,
                 marker=dict(
                     size=6,
                     symbol=MAPA_SIMBOLOS.get(sensor, 'circle'),
-                    color=colores_puntos,  # Array de colores por punto
+                    color=colores_puntos,
                     line=dict(width=0.5, color='white')
                 ),
                 hovertemplate='%{text}<extra></extra>',
@@ -203,7 +192,7 @@ def crear_grafico(df_v, v, modo_log=False):
             sensores_agregados.add(sensor)
 
     # ========================================
-    # FIX 1: Fecha actual FORZADA (solución definitiva)
+    # FIX 1: Eje X con grid vertical + fecha actual
     # ========================================
     MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
@@ -211,12 +200,16 @@ def crear_grafico(df_v, v, modo_log=False):
         'Sep': 'Sep', 'Oct': 'Oct', 'Nov': 'Nov', 'Dec': 'Dic'
     }
     
+    # Calcular días totales
+    dias_totales = (ahora - hace_30_dias).days
+    
+    # Generar 6 ticks (aproximadamente cada 5 días)
     tick_dates = []
     tick_labels = []
     
-    # Ticks más espaciados (cada 6 días) para dar espacio al final
-    for dias in [0, 6, 12, 18, 24]:
-        fecha = hace_30_dias + timedelta(days=dias)
+    for i in range(6):
+        dias_offset = int((dias_totales / 6) * i)
+        fecha = hace_30_dias + timedelta(days=dias_offset)
         tick_dates.append(fecha)
         
         label_en = fecha.strftime("%d %b")
@@ -224,47 +217,53 @@ def crear_grafico(df_v, v, modo_log=False):
             label_en = label_en.replace(en, es)
         tick_labels.append(label_en)
     
-    # ✅ TICK FINAL: AHORA
-    tick_dates.append(ahora)
-    label_actual = ahora.strftime("%d %b")
-    for en, es in MESES_ES_DICT.items():
-        label_actual = label_actual.replace(en, es)
-    tick_labels.append(label_actual)
+    # ✅ AGREGAR FECHA ACTUAL como último tick
+    # SOLO si no está ya muy cerca del penúltimo
+    ultimo_tick = tick_dates[-1]
+    diferencia_horas = (ahora - ultimo_tick).total_seconds() / 3600
+    
+    if diferencia_horas > 24:  # Si hay más de 1 día de diferencia
+        tick_dates.append(ahora)
+        label_actual = ahora.strftime("%d %b")
+        for en, es in MESES_ES_DICT.items():
+            label_actual = label_actual.replace(en, es)
+        tick_labels.append(label_actual)
     
     fig.update_xaxes(
         type="date",
-        range=[hace_30_dias, ahora + timedelta(hours=3)],  # ✅ Range extendido
+        range=[hace_30_dias, ahora + timedelta(hours=6)],  # Margen extra
         tickmode='array',
         tickvals=tick_dates,
         ticktext=tick_labels,
         showgrid=True,
-        gridcolor='rgba(255,255,255,0.12)',
+        gridcolor='rgba(255,255,255,0.2)',  # ✅ Grid principal visible
+        gridwidth=1,
         tickangle=-45,
-        fixedrange=True,
+        fixedrange=False,  # ✅ Permitir zoom/pan
         tickfont=dict(size=9),
-        showticklabels=True  # ✅ Forzar mostrar todos
-        # ✅ SIN minor grid (puede interferir)
+        showticklabels=True
     )
     
-    # Eje Y
     if modo_log:
         fig.update_yaxes(
             type="linear",
             range=[4.7, 9],
             tickvals=[5, 6, 7, 8],
             ticktext=["10⁵", "10⁶", "10⁷", "10⁸"],
-            gridcolor='rgba(255,255,255,0.05)',
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.15)',  # ✅ Grid horizontal
             tickfont=dict(size=9),
             autorange=False,
-            fixedrange=True
+            fixedrange=False  # ✅ Permitir zoom
         )
     else:
         fig.update_yaxes(
             type="linear",
             range=[0, max(1.1, v_max_val * 1.5)],
-            gridcolor='rgba(255,255,255,0.05)',
+            showgrid=True,
+            gridcolor='rgba(255,255,255,0.15)',  # ✅ Grid horizontal
             tickfont=dict(size=9),
-            fixedrange=True
+            fixedrange=False  # ✅ Permitir zoom
         )
     
     fig.add_annotation(
@@ -362,11 +361,14 @@ def procesar():
         if not df.empty:
             df['Confianza_Validacion'] = 'valido'
     
+    # ========================================
+    # FIX 2: Habilitar botones de zoom/pan
+    # ========================================
     config_lineal = {
         'displayModeBar': True,
         'displaylogo': False,
         'responsive': True,
-        'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
+        'modeBarButtonsToRemove': ['lasso2d'],  # ✅ Solo remover lasso
         'toImageButtonOptions': {
             'format': 'jpeg',
             'filename': 'grafico_volcan',
@@ -380,7 +382,7 @@ def procesar():
         'displayModeBar': True,
         'displaylogo': False,
         'responsive': False,
-        'modeBarButtonsToRemove': ['select2d', 'lasso2d'],
+        'modeBarButtonsToRemove': ['lasso2d'],  # ✅ Solo remover lasso
         'toImageButtonOptions': {
             'format': 'jpeg',
             'filename': 'grafico_volcan_log',
