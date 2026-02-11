@@ -63,11 +63,14 @@
     </footer>
 
     <script>
+        // ========================================
+        // FIX: PlanchonPeteroa (NO "Peteroa")
+        // ========================================
         const volcanes = [
             {n: "Isluga", r: "Tarapacá"}, 
             {n: "Lascar", r: "Antofagasta"}, 
             {n: "Lastarria", r: "Antofagasta"}, 
-            {n: "Peteroa", r: "Maule"}, 
+            {n: "PlanchonPeteroa", r: "Maule"},  // ✅ FIX: era "Peteroa"
             {n: "Nevados de Chillan", r: "Ñuble"}, 
             {n: "Copahue", r: "Biobío"}, 
             {n: "Llaima", r: "Araucanía"}, 
@@ -121,7 +124,9 @@
         }
         
         // ========================================
-        // FIX 1: Descarga correcta de CSV por volcán
+        // FIX: Normalización consistente con visualizador.py
+        // - Espacios → guión bajo
+        // - Guiones → guión bajo (para archivos)
         // ========================================
         function descargarCSV(nombre) { 
             // Normalizar nombre para que coincida con archivos generados
@@ -144,7 +149,14 @@
             volcanes.forEach(v => {
                 const card = document.createElement('div'); 
                 card.className = 'card'; 
-                const nF = v.n.replace(/ /g, '_'); 
+                
+                // ========================================
+                // FIX: Normalizar nombre para archivo HTML
+                // - Espacios → guión bajo
+                // - Guiones → guión bajo
+                // ========================================
+                const nF = v.n.replace(/ /g, '_').replace(/-/g, '_');
+                
                 const url = `monitoreo_satelital/v_html/${nF}.html?t=${ts}`;
                 
                 card.innerHTML = `
@@ -168,6 +180,9 @@
                     const st = document.getElementById('sys-status'); 
                     st.innerText = data.estado; 
                     st.style.color = data.color; 
+                })
+                .catch(err => {
+                    console.log('Estado del sistema no disponible');
                 });
         }
         
