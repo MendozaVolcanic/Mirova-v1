@@ -15,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pages: write        # ✅ NECESARIO para deploy
+      id-token: write     # ✅ NECESARIO para deploy
 
     steps:
       - name: Checkout del repositorio
@@ -51,10 +53,6 @@ jobs:
           
           if ! git diff --quiet --staged; then
             git commit -m "📊 Generación automática de gráficos"
-            
-            # ========================================
-            # FIX: Pull sin rebase (más seguro)
-            # ========================================
             git pull origin main --no-rebase --strategy-option=ours || true
             
             max_retries=3
@@ -77,3 +75,19 @@ jobs:
           else
             echo "No hay cambios nuevos para subir."
           fi
+      
+      # ========================================
+      # DEPLOY A GITHUB PAGES - MIROVA-V1
+      # index.html está en RAÍZ del repositorio
+      # ========================================
+      - name: Configurar Pages
+        uses: actions/configure-pages@v4
+      
+      - name: Subir artefacto a Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'  # ✅ TODO el repo (index.html en raíz)
+      
+      - name: Deploy a GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
