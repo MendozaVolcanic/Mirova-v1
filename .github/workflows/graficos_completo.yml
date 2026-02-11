@@ -2,7 +2,7 @@ name: Generar Graficos
 
 on:
   schedule:
-    - cron: '*/25 * * * *'  # Cada 25 minutos
+    - cron: '*/25 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -70,7 +70,8 @@ jobs:
           fi
       
       # ========================================
-      # DEPLOY A GITHUB PAGES
+      # DEPLOY A GITHUB PAGES - MIROVA-V1
+      # index.html está en RAÍZ del repositorio
       # ========================================
       - name: Configurar Pages
         uses: actions/configure-pages@v4
@@ -78,7 +79,7 @@ jobs:
       - name: Subir artefacto a Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'monitoreo_satelital'
+          path: '.'  # ✅ TODO el repo (index.html en raíz)
       
       - name: Deploy a GitHub Pages
         id: deployment
