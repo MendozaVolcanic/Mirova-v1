@@ -64,13 +64,13 @@
 
     <script>
         // ========================================
-        // FIX: PlanchonPeteroa (NO "Peteroa")
+        // FIX 1: "Peteroa" → "PlanchonPeteroa"
         // ========================================
         const volcanes = [
             {n: "Isluga", r: "Tarapacá"}, 
             {n: "Lascar", r: "Antofagasta"}, 
             {n: "Lastarria", r: "Antofagasta"}, 
-            {n: "PlanchonPeteroa", r: "Maule"},  // ✅ FIX: era "Peteroa"
+            {n: "PlanchonPeteroa", r: "Maule"},  // ✅ CORREGIDO
             {n: "Nevados de Chillan", r: "Ñuble"}, 
             {n: "Copahue", r: "Biobío"}, 
             {n: "Llaima", r: "Araucanía"}, 
@@ -123,19 +123,9 @@
             document.getElementById('modal-iframe').src = ''; 
         }
         
-        // ========================================
-        // FIX: Normalización consistente con visualizador.py
-        // - Espacios → guión bajo
-        // - Guiones → guión bajo (para archivos)
-        // ========================================
         function descargarCSV(nombre) { 
-            // Normalizar nombre para que coincida con archivos generados
             const nombreArchivo = nombre.replace(/ /g, '_').replace(/-/g, '_');
-            
-            // URL directa al CSV generado por merger
             const url = `monitoreo_satelital/registro_${nombreArchivo}.csv?t=${new Date().getTime()}`;
-            
-            // Descargar directamente
             const a = document.createElement('a');
             a.href = url;
             a.download = `Historial_${nombreArchivo}.csv`;
@@ -151,11 +141,9 @@
                 card.className = 'card'; 
                 
                 // ========================================
-                // FIX: Normalizar nombre para archivo HTML
-                // - Espacios → guión bajo
-                // - Guiones → guión bajo
+                // FIX 2: Normalizar guiones además de espacios
                 // ========================================
-                const nF = v.n.replace(/ /g, '_').replace(/-/g, '_');
+                const nF = v.n.replace(/ /g, '_').replace(/-/g, '_');  // ✅ CORREGIDO
                 
                 const url = `monitoreo_satelital/v_html/${nF}.html?t=${ts}`;
                 
