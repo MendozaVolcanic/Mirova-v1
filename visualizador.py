@@ -12,12 +12,9 @@ ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
 
-# ========================================
-# FIX: Nombres consistentes con scraper.py y CSVs
-# ========================================
 VOLCANES = [
     "Isluga", "Lascar", "Lastarria",
-    "PlanchonPeteroa",  # ✅ FIX: era "Peteroa"
+    "PlanchonPeteroa",
     "Nevados de Chillan", "Copahue", "Llaima", "Villarrica",
     "Puyehue-Cordon Caulle",
     "Chaiten"
@@ -111,6 +108,7 @@ def crear_grafico(df_v, v, modo_log=False):
     
     # ========================================
     # FIX CRÍTICO: ValueError "not enough values to unpack"
+    # VERIFICAR: Esta sección DEBE estar así
     # ========================================
     tiene_confianza = 'Confianza_Validacion' in df_v_30.columns
     
@@ -121,15 +119,16 @@ def crear_grafico(df_v, v, modo_log=False):
     
     for grupo_key, grupo in grupos:
         # ========================================
-        # FIX: Desempaquetar correctamente según tipo
+        # LÍNEAS CRÍTICAS - NO MODIFICAR
         # ========================================
         if tiene_confianza:
-            # grupo_key es tupla (Sensor, Confianza)
             sensor, confianza = grupo_key
         else:
-            # grupo_key es string (solo Sensor)
             sensor = grupo_key
             confianza = None
+        # ========================================
+        # FIN SECCIÓN CRÍTICA
+        # ========================================
         
         simbolo = MAPA_SIMBOLOS.get(sensor, "circle")
         color = COLORES_CONFIANZA.get(confianza, "#2ea043") if confianza else "#2ea043"
@@ -137,7 +136,6 @@ def crear_grafico(df_v, v, modo_log=False):
         x_fechas = grupo['Fecha_Chile_temp']
         y_valores = grupo['VRP_MW'].apply(transform)
         
-        # Hover text
         hover_texts = []
         for idx, row in grupo.iterrows():
             fecha_chile = row['Fecha_Chile_temp'].strftime('%d-%b %H:%M')
@@ -160,7 +158,6 @@ def crear_grafico(df_v, v, modo_log=False):
                 f"Confianza: {conf_texto}"
             )
         
-        # Nombre de leyenda
         nombre_leyenda = f"{sensor}"
         if confianza and confianza not in ["N/A", "valido"]:
             nombre_leyenda += f" ({confianza})"
@@ -214,15 +211,11 @@ def crear_grafico(df_v, v, modo_log=False):
         tickformat='%d-%b'
     )
     
-    # Título
     titulo = f"{v} - Últimos 30 días"
     if not df_v_30.empty:
         ultima_fecha = df_v_30['Fecha_Chile_temp'].max().strftime('%d-%b-%Y %H:%M')
         titulo += f"<br><sub>Última detección: {ultima_fecha}</sub>"
     
-    # ========================================
-    # FIX: Fondo NEGRO real para exportar
-    # ========================================
     fig.update_layout(
         title=dict(
             text=titulo,
@@ -286,20 +279,16 @@ def main():
         
         print(f"   ✅ {len(df_v)} eventos encontrados")
         
-        # Gráfico lineal
         fig_lineal = crear_grafico(df_v, v, modo_log=False)
         if fig_lineal:
             nombre_archivo = v.replace(' ', '_').replace('-', '_')
             path_lineal = os.path.join(CARPETA_LINEAL, f"{nombre_archivo}.html")
             
-            # ========================================
-            # FIX: Exportar como JPEG (sin transparencia)
-            # ========================================
             fig_lineal.write_html(
                 path_lineal,
                 config={
                     'toImageButtonOptions': {
-                        'format': 'jpeg',  # ✅ JPEG en lugar de PNG
+                        'format': 'jpeg',
                         'filename': f'{nombre_archivo}_lineal',
                         'height': 500,
                         'width': 1200,
@@ -315,7 +304,6 @@ def main():
         else:
             print(f"   ⚠️ Sin datos en últimos 30 días (gráfico lineal)")
         
-        # Gráfico logarítmico
         fig_log = crear_grafico(df_v, v, modo_log=True)
         if fig_log:
             nombre_archivo = v.replace(' ', '_').replace('-', '_')
@@ -325,7 +313,7 @@ def main():
                 path_log,
                 config={
                     'toImageButtonOptions': {
-                        'format': 'jpeg',  # ✅ JPEG en lugar de PNG
+                        'format': 'jpeg',
                         'filename': f'{nombre_archivo}_log',
                         'height': 500,
                         'width': 1200,
