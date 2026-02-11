@@ -5,26 +5,32 @@ import os
 import pytz
 from datetime import datetime, timedelta
 
-# --- CONFIGURACIÓN ---
 ARCHIVO_MAESTRO = "monitoreo_satelital/registro_vrp_maestro_publicable.csv"
 ARCHIVO_MAESTRO_COMPLETO = "monitoreo_satelital/registro_vrp_maestro.csv"
 ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
 
-# ========================================
-# FIX CRÍTICO: Nombres SIN tildes (para archivos)
-# ========================================
 VOLCANES = ["Isluga", "Lascar", "Lastarria", "PlanchonPeteroa", "Nevados de Chillan", "Copahue", "Llaima", "Villarrica", "Puyehue-Cordon Caulle", "Chaiten"]
 
 MAPA_SIMBOLOS = {"MODIS": "triangle-up", "VIIRS375": "square", "VIIRS750": "circle", "VIIRS": "circle"}
-COLORES_CONFIANZA = {
-    "N/A": "#2ea043",
-    "valido": "#2ea043",
-    "alta": "#2ea043",
-    "media": "#d29922",
-    "baja": "#fb8500"
+
+# ========================================
+# FIX 2: Un solo color por sensor
+# ========================================
+COLORES_SENSOR = {
+    "MODIS": "#2ea043",       # Verde (único color)
+    "VIIRS375": "#2ea043",    # Verde (único color)
+    "VIIRS": "#2ea043",       # Verde (único color)
+    "VIIRS750": "#2ea043"     # Verde (único color)
 }
+
+# Colores de confianza SOLO para puntos que NO son alta/válido
+COLORES_CONFIANZA_ESPECIAL = {
+    "media": "#d29922",  # Amarillo
+    "baja": "#fb8500"    # Naranja
+}
+
 MESES_ES = {1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun", 7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"}
 
 MIROVA_BANDS = [
@@ -120,70 +126,73 @@ def crear_grafico(df_v, v, modo_log=False):
         
         return None
 
-    # Traces por sensor y confianza
+    # ========================================
+    # FIX 2: Agrupar solo por sensor (no por confianza)
+    # Mostrar un solo trace verde por sensor
+    # ========================================
+    sensores_agregados = set()  # Para evitar duplicados en leyenda
+    
     for sensor in df_v_30['Sensor'].unique():
         df_sensor = df_v_30[df_v_30['Sensor'] == sensor]
         
-        for confianza in ['N/A', 'valido', 'alta', 'media', 'baja']:
-            if 'Confianza_Validacion' in df_sensor.columns:
-                df_grupo = df_sensor[df_sensor['Confianza_Validacion'] == confianza]
+        hover_texts = []
+        customdata_urls = []
+        colores_puntos = []
+        
+        for _, row in df_sensor.iterrows():
+            url_github = generar_url_imagenes(row)
+            
+            tipo_registro = row.get('Tipo_Registro', 'N/A')
+            if 'OCR' in tipo_registro:
+                fuente = "OCR"
+            elif 'ALERTA_TERMICA' in tipo_registro:
+                fuente = "Latest.php"
             else:
-                df_grupo = df_sensor.copy()
-                confianza = 'N/A'
+                fuente = "N/A"
             
-            if df_grupo.empty:
-                continue
+            confianza = row.get('Confianza_Validacion', 'N/A')
             
-            hover_texts = []
-            customdata_urls = []
+            if url_github:
+                hover_texts.append(
+                    f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
+                    f"{row['VRP_MW']:.2f} MW<br>"
+                    f"{row['Sensor']}<br>"
+                    f"Dist: {row['Distancia_km']:.1f} km<br>"
+                    f"Conf: {confianza}<br>"
+                    f"Fuente: {fuente}<br>"
+                    f"<i>Click para ver carpeta</i>"
+                )
+                customdata_urls.append(url_github)
+            else:
+                hover_texts.append(
+                    f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
+                    f"{row['VRP_MW']:.2f} MW<br>"
+                    f"{row['Sensor']}<br>"
+                    f"Dist: {row['Distancia_km']:.1f} km<br>"
+                    f"Conf: {confianza}<br>"
+                    f"Fuente: {fuente}"
+                )
+                customdata_urls.append(None)
             
-            for _, row in df_grupo.iterrows():
-                url_github = generar_url_imagenes(row)
-                
-                # ========================================
-                # FIX 3: Agregar fuente (OCR o Latest)
-                # ========================================
-                tipo_registro = row.get('Tipo_Registro', 'N/A')
-                if 'OCR' in tipo_registro:
-                    fuente = "OCR"
-                elif 'ALERTA_TERMICA' in tipo_registro:
-                    fuente = "Latest.php"
-                else:
-                    fuente = "N/A"
-                
-                if url_github:
-                    hover_texts.append(
-                        f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
-                        f"{row['VRP_MW']:.2f} MW<br>"
-                        f"{row['Sensor']}<br>"
-                        f"Dist: {row['Distancia_km']:.1f} km<br>"
-                        f"Conf: {row.get('Confianza_Validacion', 'N/A')}<br>"
-                        f"Fuente: {fuente}<br>"  # ✅ Agregado
-                        f"<i>Click para ver carpeta</i>"
-                    )
-                    customdata_urls.append(url_github)
-                else:
-                    hover_texts.append(
-                        f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
-                        f"{row['VRP_MW']:.2f} MW<br>"
-                        f"{row['Sensor']}<br>"
-                        f"Dist: {row['Distancia_km']:.1f} km<br>"
-                        f"Conf: {row.get('Confianza_Validacion', 'N/A')}<br>"
-                        f"Fuente: {fuente}"  # ✅ Agregado
-                    )
-                    customdata_urls.append(None)
-            
-            df_grupo['VRP_Transformed'] = df_grupo['VRP_MW'].apply(transform)
-            
+            # Color del punto: verde si alta/válido, amarillo/naranja si media/baja
+            if confianza in ['alta', 'valido', 'N/A']:
+                colores_puntos.append(COLORES_SENSOR[sensor])
+            else:
+                colores_puntos.append(COLORES_CONFIANZA_ESPECIAL.get(confianza, COLORES_SENSOR[sensor]))
+        
+        df_sensor['VRP_Transformed'] = df_sensor['VRP_MW'].apply(transform)
+        
+        # Un solo trace por sensor (no duplicar por confianza)
+        if sensor not in sensores_agregados:
             fig.add_trace(go.Scatter(
-                x=df_grupo['Fecha_UTC'],
-                y=df_grupo['VRP_Transformed'],
+                x=df_sensor['Fecha_UTC'],
+                y=df_sensor['VRP_Transformed'],
                 mode='markers',
-                name=sensor,
+                name=sensor,  # Solo nombre del sensor
                 marker=dict(
                     size=6,
                     symbol=MAPA_SIMBOLOS.get(sensor, 'circle'),
-                    color=COLORES_CONFIANZA.get(confianza, '#2ea043'),
+                    color=colores_puntos,  # Array de colores por punto
                     line=dict(width=0.5, color='white')
                 ),
                 hovertemplate='%{text}<extra></extra>',
@@ -191,9 +200,10 @@ def crear_grafico(df_v, v, modo_log=False):
                 customdata=customdata_urls,
                 showlegend=True
             ))
+            sensores_agregados.add(sensor)
 
     # ========================================
-    # FIX 2: Fecha actual FORZADA en eje X
+    # FIX 1: Fecha actual FORZADA (solución definitiva)
     # ========================================
     MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
@@ -204,8 +214,8 @@ def crear_grafico(df_v, v, modo_log=False):
     tick_dates = []
     tick_labels = []
     
-    # Generar ticks FIJOS cada 5 días desde hace_30_dias
-    for dias in [0, 5, 10, 15, 20, 25]:
+    # Ticks más espaciados (cada 6 días) para dar espacio al final
+    for dias in [0, 6, 12, 18, 24]:
         fecha = hace_30_dias + timedelta(days=dias)
         tick_dates.append(fecha)
         
@@ -214,7 +224,7 @@ def crear_grafico(df_v, v, modo_log=False):
             label_en = label_en.replace(en, es)
         tick_labels.append(label_en)
     
-    # ✅ FORZAR tick final = AHORA
+    # ✅ TICK FINAL: AHORA
     tick_dates.append(ahora)
     label_actual = ahora.strftime("%d %b")
     for en, es in MESES_ES_DICT.items():
@@ -223,16 +233,17 @@ def crear_grafico(df_v, v, modo_log=False):
     
     fig.update_xaxes(
         type="date",
-        range=[hace_30_dias, ahora],
+        range=[hace_30_dias, ahora + timedelta(hours=3)],  # ✅ Range extendido
         tickmode='array',
         tickvals=tick_dates,
         ticktext=tick_labels,
         showgrid=True,
         gridcolor='rgba(255,255,255,0.12)',
-        minor=dict(dtick=86400000.0, showgrid=True, gridcolor='rgba(255,255,255,0.03)'),
         tickangle=-45,
         fixedrange=True,
-        tickfont=dict(size=9)
+        tickfont=dict(size=9),
+        showticklabels=True  # ✅ Forzar mostrar todos
+        # ✅ SIN minor grid (puede interferir)
     )
     
     # Eje Y
