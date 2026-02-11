@@ -1,62 +1,82 @@
-name: Generador de Graficos
+name: Generar Graficos
 
 on:
-  workflow_run:
-    workflows: ["Monitor Volcanico VRP"]
-    types: [completed]
-  
-  # Mantenemos esto para poder ejecutarlo manualmente desde la pestaña Actions si es necesario
+  schedule:
+    - cron: '*/25 * * * *'  # Cada 25 minutos
   workflow_dispatch:
 
-concurrency:
-  group: generador-graficos
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
-  pintar_y_publicar:
+  graficos:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+    
     steps:
-      - name: Checkout del repositorio
+      - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Configurar Python
+      
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-
+          python-version: '3.10'
+      
       - name: Instalar dependencias
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Preparar entorno
+          pip install pandas numpy plotly pytz
+      
+      - name: Generar graficos
         run: |
-          # Creamos y limpiamos ambas carpetas de gráficos
-          mkdir -p monitoreo_satelital/v_html/
-          mkdir -p monitoreo_satelital/v_html_log/
-          rm -rf monitoreo_satelital/v_html/*
-          rm -rf monitoreo_satelital/v_html_log/*
-
-      - name: Ejecutar el Visualizador
-        run: python visualizador.py
-
-      - name: Guardar en GitHub
+          python visualizador.py
+      
+      - name: Commit y push cambios
         run: |
           git config --global user.name "VolcanoVisualizer"
           git config --global user.email "viz@volcano.com"
           
-          # Añadimos ambas carpetas y el estado
-          git add monitoreo_satelital/v_html/*.html
-          git add monitoreo_satelital/v_html_log/*.html
-          git add monitoreo_satelital/estado_sistema.json
+          # ========================================
+          # FIX: Agregar TODOS los cambios antes de commit
+          # ========================================
+          git add monitoreo_satelital/v_html/*.html 2>/dev/null || true
+          git add monitoreo_satelital/v_html_log/*.html 2>/dev/null || true
+          git add monitoreo_satelital/estado_sistema.json 2>/dev/null || true
           
+          # Verificar si hay cambios
           if ! git diff --quiet --staged; then
+            # Commit PRIMERO
             git commit -m "📊 Generación automática de gráficos"
-            git pull origin main --rebase -X ours
-            git push origin main
+            
+            # ========================================
+            # FIX: Pull DESPUÉS de commit
+            # Opciones:
+            # 1. Pull con merge (más seguro)
+            # 2. Pull con rebase (más limpio)
+            # ========================================
+            
+            # Opción 1: Pull con merge (RECOMENDADO para workflows automáticos)
+            git pull origin main --no-rebase --strategy-option=ours || true
+            
+            # Push con retry
+            max_retries=3
+            retry_count=0
+            
+            while [ $retry_count -lt $max_retries ]; do
+              if git push origin main; then
+                echo "✅ Push exitoso"
+                exit 0
+              else
+                retry_count=$((retry_count + 1))
+                echo "⚠️ Push falló, intento $retry_count de $max_retries"
+                
+                if [ $retry_count -lt $max_retries ]; then
+                  sleep 2
+                  git pull origin main --no-rebase --strategy-option=ours || true
+                fi
+              fi
+            done
+            
+            echo "❌ Push falló después de $max_retries intentos"
+            exit 1
           else
-            echo "No hay cambios nuevos para subir."
+            echo "ℹ️ No hay cambios nuevos para subir."
           fi
