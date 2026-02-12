@@ -71,7 +71,7 @@
         </div>
         
         <div style="font-size: 0.7em; color: #6e7681; margin-top: 6px; font-style: italic;">
-            ⏰ Todas las horas están en UTC (Tiempo Universal Coordinado)
+            ⏰ Todas las horas en UTC (Tiempo Universal Coordinado)
         </div>
     </header>
     <div class="grid" id="galeria"></div>
@@ -97,7 +97,7 @@
         </div>
         
         <div class="footer-section" style="margin-top: 15px; font-size: 0.85em;">
-            © 2025 Sistema de Monitoreo Volcánico Automatizado - Chile
+            © 2026 Sistema de Monitoreo Volcánico Automatizado - Chile
         </div>
     </footer>
 
