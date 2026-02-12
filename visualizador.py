@@ -64,6 +64,9 @@ def crear_grafico(df_v, v, modo_log=False):
     
     v_max_val_watts = v_max_val * 1e6
     
+    # ========================================
+    # FIX 1: Bandas SIN agregar a leyenda
+    # ========================================
     for y0, y1, label, color in MIROVA_BANDS:
         if modo_log:
             if y0 == 0:
@@ -75,35 +78,12 @@ def crear_grafico(df_v, v, modo_log=False):
             l_y0 = y0 / 1e6
             l_y1 = y1 / 1e6
         
+        # Dibujar rectángulo de fondo PERO sin agregarlo a la leyenda
         fig.add_hrect(y0=l_y0, y1=l_y1, fillcolor=color, line_width=0, layer="below")
         
-        if modo_log:
-            rango_inicio = 1e5 if y0 == 0 else y0
-            if v_max_val_watts >= rango_inicio:
-                fig.add_trace(go.Scatter(
-                    x=[None], y=[None],
-                    mode='markers',
-                    name=label,
-                    marker=dict(
-                        size=8,
-                        symbol='square',
-                        color=color.replace('0.2', '0.8').replace('0.15', '0.8')
-                    ),
-                    showlegend=True
-                ))
-        else:
-            if v_max_val_watts >= y0:
-                fig.add_trace(go.Scatter(
-                    x=[None], y=[None],
-                    mode='markers',
-                    name=label,
-                    marker=dict(
-                        size=8,
-                        symbol='square',
-                        color=color.replace('0.2', '0.8').replace('0.15', '0.8')
-                    ),
-                    showlegend=True
-                ))
+        # ❌ NO agregar trace a leyenda (comentado)
+        # if v_max_val_watts >= y0:
+        #     fig.add_trace(go.Scatter(..., showlegend=True))
 
     def generar_url_imagenes(row):
         ruta_foto = row.get('Ruta Foto', 'No descargada')
@@ -191,9 +171,6 @@ def crear_grafico(df_v, v, modo_log=False):
             ))
             sensores_agregados.add(sensor)
 
-    # ========================================
-    # FIX 1: Grid diario entre fechas
-    # ========================================
     MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
         'May': 'May', 'Jun': 'Jun', 'Jul': 'Jul', 'Aug': 'Ago',
@@ -232,13 +209,12 @@ def crear_grafico(df_v, v, modo_log=False):
         tickvals=tick_dates,
         ticktext=tick_labels,
         showgrid=True,
-        gridcolor='rgba(255,255,255,0.2)',  # Grid principal (fechas)
+        gridcolor='rgba(255,255,255,0.2)',
         gridwidth=1,
-        # ✅ GRID DIARIO (líneas verticales entre fechas)
         minor=dict(
-            dtick=86400000,  # 1 día en milisegundos
+            dtick=86400000,
             showgrid=True,
-            gridcolor='rgba(255,255,255,0.08)',  # Gris claro
+            gridcolor='rgba(255,255,255,0.08)',
             gridwidth=0.5
         ),
         tickangle=-45,
@@ -364,23 +340,19 @@ def procesar():
         if not df.empty:
             df['Confianza_Validacion'] = 'valido'
     
-    # ========================================
-    # FIX 2: Solo 3 botones (Download, Zoom, Reset)
-    # ========================================
     config_lineal = {
         'displayModeBar': True,
         'displaylogo': False,
         'responsive': True,
         'modeBarButtonsToRemove': [
-            'select2d',      # Remover select box
-            'lasso2d',       # Remover lasso
-            'pan2d',         # Remover pan
-            'zoomIn2d',      # Remover zoom in individual
-            'zoomOut2d',     # Remover zoom out individual
-            'autoScale2d',   # Remover autoscale
-            'toggleSpikelines'  # Remover spikelines
+            'select2d',
+            'lasso2d',
+            'pan2d',
+            'zoomIn2d',
+            'zoomOut2d',
+            'autoScale2d',
+            'toggleSpikelines'
         ],
-        # ✅ Quedan: toImage (cámara), zoom (box zoom), resetScale2d (reset)
         'toImageButtonOptions': {
             'format': 'jpeg',
             'filename': 'grafico_volcan',
@@ -438,18 +410,13 @@ def procesar():
             cfg = config_log if es_log else config_lineal
             html_base = fig.to_html(config=cfg, include_plotlyjs='cdn')
             
-            # ========================================
-            # FIX 2b: Ocultar botones hasta hover
-            # ========================================
             script_modebar = """
 <style>
-/* Ocultar modebar por defecto */
 .modebar {
     opacity: 0;
     transition: opacity 0.3s ease;
 }
 
-/* Mostrar modebar al hover sobre el gráfico */
 .plotly-graph-div:hover .modebar {
     opacity: 1;
 }
@@ -458,7 +425,6 @@ def procesar():
 document.addEventListener('DOMContentLoaded', function() {
     var plotDiv = document.getElementsByClassName('plotly-graph-div')[0];
     if (plotDiv) {
-        // Click handler para abrir carpeta
         plotDiv.on('plotly_click', function(data) {
             var point = data.points[0];
             if (point.customdata) {
