@@ -1,6 +1,5 @@
 """
-OCR UTILS V7 - DEBUG COMPLETO PARA GITHUB
-Agrega logs MUY detallados para diagnosticar por qué no detecta eventos
+OCR UTILS V8 - FIX CRÍTICO: No cortar en Last Update si está al inicio
 """
 
 import cv2
@@ -89,7 +88,7 @@ LIMITES_Y_COORDENADAS = {
 
 def extraer_eventos_latest10nti(img_path):
     """
-    V7: CON LOGS DETALLADOS para GitHub Actions
+    V8: FIX CRÍTICO - No cortar texto en "Last Update" si está al inicio
     Extrae eventos de Latest10NTI.png usando OCR
     
     Args:
@@ -98,7 +97,7 @@ def extraer_eventos_latest10nti(img_path):
     Returns:
         list: Lista de eventos [{timestamp, datetime, vrp_mw}, ...]
     """
-    print(f"\n🔍 DEBUG OCR V7 - Procesando: {img_path}")
+    print(f"\n🔍 DEBUG OCR V8 - Procesando: {img_path}")
     
     try:
         img = Image.open(img_path)
@@ -135,17 +134,25 @@ def extraer_eventos_latest10nti(img_path):
         print(texto)
         print("="*80)
         
-        # Filtrar línea "Last Update"
+        # ===== FIX V8: NO cortar en "Last Update" si está en primeras 100 caracteres =====
         texto_original_len = len(texto)
+        
+        # Buscar "Last Update" que NO esté al inicio (posición > 100)
         for match in re.finditer(r'Last Update.*', texto, re.IGNORECASE):
             start_pos = match.start()
-            texto = texto[:start_pos]
-            print(f"\n   ✂️ Texto cortado en 'Last Update' (pos {start_pos})")
-            print(f"   📏 Longitud: {texto_original_len} → {len(texto)} caracteres")
-            break
+            
+            # Solo cortar si "Last Update" está DESPUÉS de los primeros 100 caracteres
+            if start_pos > 100:
+                texto = texto[:start_pos]
+                print(f"\n   ✂️ Texto cortado en 'Last Update' (pos {start_pos})")
+                print(f"   📏 Longitud: {texto_original_len} → {len(texto)} caracteres")
+                break
+            else:
+                print(f"\n   ⚠️ 'Last Update' encontrado en pos {start_pos} (primeras líneas)")
+                print(f"   ✅ NO se corta el texto (necesitamos los datos después)")
         
         # ===== DEBUG: Mostrar texto filtrado =====
-        print(f"\n📄 TEXTO FILTRADO (sin Last Update):")
+        print(f"\n📄 TEXTO PARA PROCESAMIENTO:")
         print("="*80)
         print(texto)
         print("="*80)
