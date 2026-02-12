@@ -1,5 +1,6 @@
 """
-SCRAPER_OCR.PY - FIX 6: Nombres consistentes (NO guión bajo)
+SCRAPER_OCR.PY V12 - LOGS COMPLETOS DE DEBUG
+FIX: Logs detallados después de clasificación para encontrar problema
 """
 
 import requests
@@ -71,19 +72,13 @@ def descargar_imagen_temp(session, url, ruta_destino):
 def descargar_imagenes_permanentes(session, volcan_id, sensor, evento, es_verificar):
     """
     Descarga y guarda imágenes permanentes
-    FIX 6: Normalización CONSISTENTE con scraper.py
-    - Puyehue-Cordon Caulle → Puyehue-Cordon Caulle (mantiene guión)
-    - Nevados de Chillan → Nevados_de_Chillan (solo espacios a guión bajo)
+    Normalización CONSISTENTE: solo espacios → guión bajo (NO guiones)
     """
     conf = VOLCANES_CONFIG[volcan_id]
     nombre_v = conf["nombre"]
     
-    # ========================================
-    # FIX 6: SOLO reemplazar espacios, NO guiones
-    # ========================================
+    # Solo reemplazar espacios, NO guiones
     nombre_v_normalizado = nombre_v.replace(' ', '_')
-    # NO: .replace('-', '_')  ← Esto creaba Puyehue_Cordon_Caulle
-    
     id_mirova = conf["id_mirova"]
     
     dt_utc = evento['datetime']
@@ -96,30 +91,20 @@ def descargar_imagenes_permanentes(session, volcan_id, sensor, evento, es_verifi
     s_url = "VIIRS750" if sensor == "VIIRS" else sensor
     sufijo = "_VERIFICAR" if es_verificar else ""
     
-    # ========================================
-    # FIX 4: Tipos de imagen (incluye Latest10NTI)
-    # ========================================
     tipos = ["VRP", "logVRP", "Latest10NTI", "Dist"]
     ruta_relativa = "No descargada"
     
     for t in tipos:
-        # ========================================
-        # FIX 4: Construcción correcta de URL
-        # ========================================
         if t == "Latest10NTI":
-            # Latest10NTI → Latest10NTI (sin cambios)
             t_url = "Latest10NTI"
-            # Nombre de archivo local sin "10NTI"
             filename = f"{h_a}_{nombre_v_normalizado}_{s_url}_Latest{sufijo}.png"
         else:
-            # VRP, logVRP, Dist → sin cambios
             t_url = t
             filename = f"{h_a}_{nombre_v_normalizado}_{s_url}_{t}{sufijo}.png"
         
         url = f"https://www.mirovaweb.it/OUTPUTweb/MIROVA/{s_url}/VOLCANOES/{id_mirova}/{id_mirova}_{s_url}_{t_url}.png"
         path_f = os.path.join(ruta_dia, filename)
         
-        # No descargar si ya existe
         if os.path.exists(path_f):
             if t == "VRP":
                 ruta_relativa = f"imagenes_satelitales/{nombre_v_normalizado}/{f_c}/{filename}"
@@ -162,7 +147,6 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     
     if not descargar_imagen_temp(session, url_dist, temp_dist):
         print(f"  ⚠️ No se pudo descargar Dist.png")
-        # Continuar sin validación de distancia
     
     # OCR de Latest10NTI
     eventos = extraer_eventos_latest10nti(temp_latest)
@@ -175,41 +159,67 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     if os.path.exists(temp_dist):
         eventos = analizar_puntos_distancia(temp_dist, eventos)
     
+    # ===== NUEVO V12: LOGS DETALLADOS =====
+    print(f"\n📋 PROCESANDO {len(eventos)} EVENTOS INDIVIDUALES:")
+    
     # Procesar cada evento
     eventos_nuevos = []
     ahora_cl = datetime.now(pytz.timezone('America/Santiago')).strftime("%Y-%m-%d %H:%M:%S")
     
-    for evento in eventos:
+    for i, evento in enumerate(eventos, 1):
         ts = evento['timestamp']
         vrp_mw = evento['vrp_mw']
+        dt_utc = evento['datetime']
+        fecha_str = dt_utc.strftime('%d-%b %H:%M')
         
-        # Verificar que NO exista en consolidado ni en OCR
-        if not verificar_evento_no_existe(evento, nombre_v, sensor, df_consolidado, df_ocr):
-            continue
+        print(f"\n   {'='*60}")
+        print(f"   📌 EVENTO {i}/{len(eventos)}: {fecha_str} | {vrp_mw} MW")
+        print(f"   {'='*60}")
         
         # Clasificar confianza
         clasificacion = clasificar_confianza(evento)
         
+        print(f"   📊 CLASIFICACIÓN:")
+        print(f"      Tipo: {clasificacion['tipo_registro']}")
+        print(f"      Confianza: {clasificacion['confianza']}")
+        print(f"      Guardar: {clasificacion['guardar']}")
+        print(f"      Guardar imágenes: {clasificacion.get('guardar_imagenes', False)}")
+        print(f"      Color punto: {evento.get('color_punto', 'sin_punto')}")
+        print(f"      Nota: {clasificacion['nota']}")
+        
+        # ===== FIX V12: Verificar guardar ANTES de duplicados =====
         if not clasificacion['guardar']:
-            print(f"  ❌ SKIP: {ts} - {clasificacion['nota']}")
+            print(f"   ❌ SKIP: guardar=False (VRP inválido)")
             continue
         
-        # Solo descargar imágenes si vale la pena
+        # Verificar duplicados
+        print(f"\n   🔍 VERIFICANDO DUPLICADOS:")
+        print(f"      Buscando: ts={ts}, volcan={nombre_v}, sensor={sensor}")
+        
+        es_nuevo = verificar_evento_no_existe(evento, nombre_v, sensor, df_consolidado, df_ocr)
+        
+        print(f"      ¿Es nuevo? {es_nuevo}")
+        
+        if not es_nuevo:
+            print(f"   ⏭️ SKIP: Ya existe en CSV (duplicado)")
+            continue
+        
+        print(f"   ✅ ES NUEVO - Procediendo a guardar")
+        
+        # Descargar imágenes si es necesario
         guardar_imgs = clasificacion.get('guardar_imagenes', False)
         
         if guardar_imgs:
-            # Descargar imágenes (evento probable: rojo o mezcla)
+            print(f"   📥 Descargando imágenes permanentes...")
             es_verificar = clasificacion['requiere_verificacion']
             ruta_foto = descargar_imagenes_permanentes(
                 session, volcan_id, sensor, evento, es_verificar
             )
+            print(f"      Ruta: {ruta_foto}")
         else:
-            # NO descargar imágenes (falso positivo o sin píxeles)
             ruta_foto = "No descargada - Evento descartado"
-            print(f"  💾 Imágenes NO guardadas (evento descartado)")
+            print(f"   💾 Imágenes NO descargadas (FALSO_POSITIVO)")
         
-        # Agregar evento
-        dt_utc = evento['datetime']
         # Clasificación MIROVA basada en VRP
         if vrp_mw < 0.2:
             clasificacion_mirova = "Muy Bajo"
@@ -220,7 +230,8 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         else:
             clasificacion_mirova = "Alto"
         
-        eventos_nuevos.append({
+        # Crear registro
+        nuevo_evento = {
             'timestamp': ts,
             'Fecha_Satelite_UTC': dt_utc.strftime("%Y-%m-%d %H:%M:%S"),
             'Fecha_Captura_Chile': dt_utc.replace(tzinfo=pytz.utc).astimezone(
@@ -242,9 +253,16 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
             'Nota_Validacion': clasificacion['nota'],
             'Version_OCR': '1.0'
-        })
+        }
         
-        print(f"  ✅ NUEVO: {ts} - VRP={vrp_mw:.2f} MW - {clasificacion['confianza']}")
+        eventos_nuevos.append(nuevo_evento)
+        print(f"   ✅ AGREGADO A LISTA DE GUARDADO")
+    
+    print(f"\n{'='*80}")
+    print(f"📊 RESUMEN {nombre_v} - {sensor}:")
+    print(f"   Total procesados: {len(eventos)}")
+    print(f"   Eventos a guardar: {len(eventos_nuevos)}")
+    print(f"{'='*80}")
     
     return eventos_nuevos
 
@@ -256,7 +274,7 @@ def procesar():
     os.makedirs(CARPETA_LOGS, exist_ok=True)
     
     print("="*80)
-    print("🔬 SCRAPER OCR - INICIO")
+    print("🔬 SCRAPER OCR V12 - INICIO")
     print("="*80)
     
     session = requests.Session()
@@ -264,6 +282,10 @@ def procesar():
     # Cargar CSVs existentes
     df_ocr = pd.read_csv(DB_OCR) if os.path.exists(DB_OCR) else pd.DataFrame(columns=COLUMNAS_OCR)
     df_consolidado = pd.read_csv(DB_CONSOLIDADO) if os.path.exists(DB_CONSOLIDADO) else pd.DataFrame()
+    
+    print(f"\n📊 CSVs CARGADOS:")
+    print(f"   registro_vrp_ocr.csv: {len(df_ocr)} registros")
+    print(f"   registro_vrp_consolidado.csv: {len(df_consolidado)} registros")
     
     todos_eventos_nuevos = []
     
@@ -277,18 +299,37 @@ def procesar():
                 todos_eventos_nuevos.extend(eventos_nuevos)
             except Exception as e:
                 print(f"❌ Error en {VOLCANES_CONFIG[volcan_id]['nombre']} {sensor}: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
     
     # Guardar eventos nuevos
+    print(f"\n{'='*80}")
+    print(f"💾 GUARDANDO EN CSV:")
+    print(f"{'='*80}")
+    
     if todos_eventos_nuevos:
+        print(f"   Eventos a agregar: {len(todos_eventos_nuevos)}")
+        
         df_nuevos = pd.DataFrame(todos_eventos_nuevos)
+        print(f"   DataFrame creado: {len(df_nuevos)} filas")
+        
         df_ocr_final = pd.concat([df_ocr, df_nuevos], ignore_index=True)
+        print(f"   CSV final: {len(df_ocr_final)} filas totales")
+        
         df_ocr_final = df_ocr_final[COLUMNAS_OCR].sort_values('timestamp', ascending=False)
+        
         df_ocr_final.to_csv(DB_OCR, index=False)
+        print(f"   ✅ Guardado en: {DB_OCR}")
         
         print(f"\n✅ Se agregaron {len(todos_eventos_nuevos)} eventos nuevos")
+        
+        # Mostrar eventos guardados
+        print(f"\n📝 EVENTOS GUARDADOS:")
+        for ev in todos_eventos_nuevos:
+            print(f"   - {ev['Fecha_Satelite_UTC']} | {ev['Volcan']} | {ev['Sensor']} | {ev['VRP_MW']} MW | {ev['Tipo_Registro']}")
     else:
-        print("\nℹ️ No hay eventos nuevos para agregar")
+        print(f"   ℹ️ No hay eventos nuevos para agregar")
     
     # Limpiar temporales
     import shutil
@@ -296,7 +337,7 @@ def procesar():
         shutil.rmtree(CARPETA_TEMP)
         os.makedirs(CARPETA_TEMP)
     
-    print("\n✅ Proceso completado")
+    print(f"\n✅ Proceso completado")
     print("="*80)
 
 
