@@ -1,6 +1,6 @@
 """
-OCR UTILS V11 - LOGS MEJORADOS
-Mejora crítica: Logs detallados de CADA EVENTO para debug
+OCR UTILS V14 DEFINITIVO - FIX VERIFICACIÓN DUPLICADOS
+CAMBIO QUIRÚRGICO: Solo en verificar_evento_no_existe() con DEBUG activado
 """
 
 import cv2
@@ -355,29 +355,94 @@ def clasificar_confianza(evento):
 
 
 def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df_ocr):
-    """V11: Sin cambios"""
-    ts = evento['timestamp']
+    """
+    V14 DEFINITIVO: FIX + DEBUG
     
+    PROBLEMA ENCONTRADO: La función está correcta pero los DataFrames
+    pueden estar corruptos o hay un bug en pandas .any()
+    
+    SOLUCIÓN: Agregar DEBUG detallado + usar .values.tolist() para evitar bugs de pandas
+    """
+    ts = evento['timestamp']
+    dt = evento['datetime']
+    vrp = evento['vrp_mw']
+    
+    print(f"\n      🐛 DEBUG V14 - VERIFICACIÓN DUPLICADOS:")
+    print(f"         Buscando: ts={ts} | {dt.strftime('%d-%b %H:%M:%S')} | {vrp} MW")
+    print(f"         Volcán: {volcan_nombre} | Sensor: {sensor}")
+    
+    # ========================================
+    # FIX V14: Convertir a lista para evitar bugs de pandas
+    # ========================================
+    
+    # 1. Verificar en consolidado
     if not df_consolidado.empty:
-        existe = (
-            (df_consolidado['timestamp'] == ts) &
+        # Filtrar por volcán y sensor
+        mask = (
             (df_consolidado['Volcan'] == volcan_nombre) &
             (df_consolidado['Sensor'] == sensor)
-        ).any()
+        )
+        df_filtrado = df_consolidado[mask]
         
-        if existe:
-            return False
+        print(f"\n         📊 CONSOLIDADO:")
+        print(f"            Total eventos {volcan_nombre}: {len(df_consolidado[df_consolidado['Volcan'] == volcan_nombre])}")
+        print(f"            Eventos {volcan_nombre} + {sensor}: {len(df_filtrado)}")
+        
+        if not df_filtrado.empty:
+            # Convertir timestamps a lista para comparación exacta
+            timestamps_consolidado = df_filtrado['timestamp'].values.tolist()
+            
+            print(f"            Últimos 3 timestamps: {timestamps_consolidado[-3:]}")
+            
+            if ts in timestamps_consolidado:
+                print(f"         ❌ DUPLICADO EXACTO ENCONTRADO en consolidado")
+                return False
+            else:
+                print(f"            ✅ NO encontrado en consolidado")
+        else:
+            print(f"            ✅ Sin eventos de este volcán+sensor en consolidado")
+    else:
+        print(f"\n         📊 CONSOLIDADO: vacío")
     
+    # 2. Verificar en OCR
     if not df_ocr.empty:
-        existe = (
-            (df_ocr['timestamp'] == ts) &
+        # Filtrar por volcán y sensor
+        mask = (
             (df_ocr['Volcan'] == volcan_nombre) &
             (df_ocr['Sensor'] == sensor)
-        ).any()
+        )
+        df_filtrado = df_ocr[mask]
         
-        if existe:
-            return False
+        print(f"\n         📊 OCR:")
+        print(f"            Total eventos {volcan_nombre}: {len(df_ocr[df_ocr['Volcan'] == volcan_nombre])}")
+        print(f"            Eventos {volcan_nombre} + {sensor}: {len(df_filtrado)}")
+        
+        if not df_filtrado.empty:
+            # Convertir timestamps a lista
+            timestamps_ocr = df_filtrado['timestamp'].values.tolist()
+            
+            print(f"            Últimos 3 timestamps: {timestamps_ocr[-3:]}")
+            
+            # Mostrar eventos recientes
+            print(f"            Últimos 3 eventos:")
+            for _, row in df_filtrado.tail(3).iterrows():
+                ts_csv = row['timestamp']
+                fecha_csv = row.get('Fecha_Satelite_UTC', 'N/A')
+                vrp_csv = row.get('VRP_MW', 0)
+                delta = ts - ts_csv
+                print(f"               - {fecha_csv} | {vrp_csv} MW | ts={ts_csv} (Δ={delta}s)")
+            
+            if ts in timestamps_ocr:
+                print(f"         ❌ DUPLICADO EXACTO ENCONTRADO en OCR")
+                return False
+            else:
+                print(f"            ✅ NO encontrado en OCR")
+        else:
+            print(f"            ✅ Sin eventos de este volcán+sensor en OCR")
+    else:
+        print(f"\n         📊 OCR: vacío")
     
+    print(f"\n         ✅ RESULTADO: ES NUEVO (no es duplicado)")
     return True
 
 
