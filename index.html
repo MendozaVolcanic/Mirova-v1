@@ -16,6 +16,12 @@
         header h1 { margin: 0; color: #58a6ff; font-size: 1.5em; }
         header p { color: #8b949e; margin: 2px 0 0 0; font-size: 0.8em; }
         
+        /* ===== FIX 1: Leyendas agrupadas ===== */
+        .legend-container { margin: 8px 0; font-size: 0.72em; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .legend-row { display: flex; align-items: center; gap: 15px; }
+        .legend-item { display: inline-flex; align-items: center; gap: 4px; }
+        .legend-box { width: 12px; height: 12px; border: 1px solid #30363d; border-radius: 2px; }
+        
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 5px; padding: 5px; max-width: 99.5%; margin: 0 auto; }
         .card { background-color: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 0px; position: relative; }
         .card-header-box { text-align: center; padding: 8px 0 4px 0; }
@@ -48,9 +54,24 @@
     <header>
         <h1>Monitoreo Volcánico MIROVA</h1>
         <p>Análisis Térmico Satelital - MIROVA / OVDAS Chile</p>
-        <div style="font-size: 0.75em; color: #8b949e; margin-top: 4px;">
-            <strong>Confianza:</strong> <span style="color: #2ea043;">🟢 Alta/Validado</span> | <span style="color: #d29922;">🟡 Media</span>
+        
+        <!-- ===== FIX 1: Leyendas unificadas ===== -->
+        <div class="legend-container">
+            <div class="legend-row">
+                <strong>Confianza:</strong>
+                <span class="legend-item">🟢 Alta/Validado</span>
+                <span class="legend-item">🟡 Media</span>
+            </div>
+            <div class="legend-row">
+                <strong>Niveles MIROVA:</strong>
+                <span class="legend-item"><span class="legend-box" style="background: rgba(128,128,128,0.7);"></span> Muy Bajo</span>
+                <span class="legend-item"><span class="legend-box" style="background: rgba(34,139,34,0.7);"></span> Bajo</span>
+                <span class="legend-item"><span class="legend-box" style="background: rgba(255,215,0,0.7);"></span> Moderado</span>
+                <span class="legend-item"><span class="legend-box" style="background: rgba(255,140,0,0.7);"></span> Alto</span>
+                <span class="legend-item"><span class="legend-box" style="background: rgba(220,20,60,0.7);"></span> Muy Alto</span>
+            </div>
         </div>
+        
         <div style="font-size: 0.7em; color: #6e7681; margin-top: 6px; font-style: italic;">
             ⏰ Todas las horas están en UTC (Tiempo Universal Coordinado)
         </div>
