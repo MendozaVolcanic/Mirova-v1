@@ -1,6 +1,7 @@
 """
-SCRAPER_OCR.PY V12 - LOGS COMPLETOS DE DEBUG
-FIX: Logs detallados después de clasificación para encontrar problema
+SCRAPER_OCR.PY V15 - FIX ESTRELLA VERDE
+CAMBIO CRÍTICO: Pasar img_dist_path y volcan_nombre a clasificar_confianza()
+para que FASE 2 (estrella verde) funcione correctamente
 """
 
 import requests
@@ -159,7 +160,9 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     if os.path.exists(temp_dist):
         eventos = analizar_puntos_distancia(temp_dist, eventos)
     
-    # ===== NUEVO V12: LOGS DETALLADOS =====
+    # ===== V15: PREPARAR img_dist_path =====
+    img_dist_path = temp_dist if os.path.exists(temp_dist) else None
+    
     print(f"\n📋 PROCESANDO {len(eventos)} EVENTOS INDIVIDUALES:")
     
     # Procesar cada evento
@@ -176,8 +179,8 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         print(f"   📌 EVENTO {i}/{len(eventos)}: {fecha_str} | {vrp_mw} MW")
         print(f"   {'='*60}")
         
-        # Clasificar confianza
-        clasificacion = clasificar_confianza(evento)
+        # ===== CAMBIO CRÍTICO V15: Pasar 3 parámetros =====
+        clasificacion = clasificar_confianza(evento, img_dist_path, nombre_v)
         
         print(f"   📊 CLASIFICACIÓN:")
         print(f"      Tipo: {clasificacion['tipo_registro']}")
@@ -187,7 +190,6 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         print(f"      Color punto: {evento.get('color_punto', 'sin_punto')}")
         print(f"      Nota: {clasificacion['nota']}")
         
-        # ===== FIX V12: Verificar guardar ANTES de duplicados =====
         if not clasificacion['guardar']:
             print(f"   ❌ SKIP: guardar=False (VRP inválido)")
             continue
@@ -274,7 +276,7 @@ def procesar():
     os.makedirs(CARPETA_LOGS, exist_ok=True)
     
     print("="*80)
-    print("🔬 SCRAPER OCR V12 - INICIO")
+    print("🔬 SCRAPER OCR V15 - INICIO")
     print("="*80)
     
     session = requests.Session()
