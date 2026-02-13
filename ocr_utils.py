@@ -1,6 +1,7 @@
 """
-OCR UTILS V14 DEFINITIVO - FIX VERIFICACIÓN DUPLICADOS
-CAMBIO QUIRÚRGICO: Solo en verificar_evento_no_existe() con DEBUG activado
+OCR UTILS V15 DEFINITIVO - FIX REGRESIÓN ESTRELLA VERDE
+CAMBIO CRÍTICO: Agregar FASE 2 de clasificación (estrella verde en imagen completa)
+que se perdió en V11-V14
 """
 
 import cv2
@@ -42,9 +43,7 @@ ROI_CONFIG = {
 
 
 def extraer_eventos_latest10nti(img_path):
-    """
-    V11: Logs mejorados - muestra CADA evento detectado
-    """
+    """V11: Sin cambios"""
     print(f"\n🔍 OCR V11 - Procesando: {img_path}")
     
     try:
@@ -87,7 +86,7 @@ def extraer_eventos_latest10nti(img_path):
             fechas.append(fecha_str)
         
         print(f"\n📅 FECHAS EXTRAÍDAS: {len(fechas)}")
-        for i, f in enumerate(fechas[:5]):  # Mostrar primeras 5
+        for i, f in enumerate(fechas[:5]):
             print(f"   {i+1}. {f}")
         if len(fechas) > 5:
             print(f"   ... (+{len(fechas)-5} más)")
@@ -101,7 +100,7 @@ def extraer_eventos_latest10nti(img_path):
             vrps.append(vrp_str)
         
         print(f"\n🔥 VRP EXTRAÍDOS: {len(vrps)}")
-        for i, v in enumerate(vrps[:5]):  # Mostrar primeros 5
+        for i, v in enumerate(vrps[:5]):
             print(f"   {i+1}. {v} MW")
         if len(vrps) > 5:
             print(f"   ... (+{len(vrps)-5} más)")
@@ -126,7 +125,6 @@ def extraer_eventos_latest10nti(img_path):
             print(f"      Fecha: {fecha_str}")
             print(f"      VRP: {vrp_str} MW")
             
-            # Validación VRP
             if 'nan' in vrp_str.lower() or any(c.isalpha() for c in vrp_str):
                 print(f"      ❌ SKIP: NaN o contiene letras")
                 continue
@@ -166,9 +164,7 @@ def extraer_eventos_latest10nti(img_path):
 
 
 def analizar_puntos_distancia(img_dist_path, eventos):
-    """
-    V11: Análisis con logs de CADA evento
-    """
+    """V15: Análisis ROI temporal (sin cambios)"""
     try:
         img_dist = cv2.imread(img_dist_path)
         if img_dist is None:
@@ -181,7 +177,7 @@ def analizar_puntos_distancia(img_dist_path, eventos):
         img_rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
         height, width = img_rgb.shape[:2]
         
-        # Extraer ROI
+        # Extraer ROI temporal
         roi_x_start = int(width * ROI_CONFIG['x_start_pct'])
         roi_x_end = int(width * ROI_CONFIG['x_end_pct'])
         roi_y_start = int(height * ROI_CONFIG['y_start_pct'])
@@ -191,7 +187,7 @@ def analizar_puntos_distancia(img_dist_path, eventos):
         
         print(f"   🔍 ROI temporal: {roi.shape} (últimas 24h)")
         
-        # Análisis de píxeles
+        # Análisis de píxeles en ROI
         mask_verde = (roi[:, :, 1] > 150) & \
                      ((roi[:, :, 1] - roi[:, :, 0]) > 50) & \
                      ((roi[:, :, 1] - roi[:, :, 2]) > 50)
@@ -214,7 +210,7 @@ def analizar_puntos_distancia(img_dist_path, eventos):
         print(f"   🔴 Rojos: {num_rojos} px")
         print(f"   ⚫ Negros: {num_negros} px")
         
-        # Clasificación
+        # Clasificación PRELIMINAR basada en ROI temporal
         UMBRAL_PIXELES = 10
         
         tiene_rojos = num_rojos >= UMBRAL_PIXELES
@@ -231,7 +227,7 @@ def analizar_puntos_distancia(img_dist_path, eventos):
             elif ratio < 0.5:
                 color_final = 'negro'
                 metodo_final = 'negro_dominante_con_estrella'
-                print(f"   ❌ Negro dominante → FALSO")
+                print(f"   ❌ Negro dominante → PENDIENTE verificación estrella")
             else:
                 color_final = 'mezcla'
                 metodo_final = 'mezcla_con_estrella'
@@ -250,10 +246,10 @@ def analizar_puntos_distancia(img_dist_path, eventos):
                 color_final = 'mezcla'
                 metodo_final = 'mezcla_densidad'
         
-        print(f"   🎯 Clasificación final: {color_final}")
+        print(f"   🎯 Clasificación ROI: {color_final}")
         
-        # ===== NUEVO: Mostrar clasificación por EVENTO =====
-        print(f"\n📋 CLASIFICACIÓN POR EVENTO:")
+        # Agregar datos a eventos
+        print(f"\n📋 CLASIFICACIÓN POR EVENTO (ROI temporal):")
         for i, evento in enumerate(eventos):
             evento['color_punto'] = color_final
             evento['metodo'] = metodo_final
@@ -265,7 +261,7 @@ def analizar_puntos_distancia(img_dist_path, eventos):
             
             print(f"   {i+1}. {fecha_str} | {vrp} MW → {color_final}")
         
-        print()  # Línea en blanco
+        print()
         
         return eventos
     
@@ -277,201 +273,18 @@ def analizar_puntos_distancia(img_dist_path, eventos):
         return eventos
 
 
-def clasificar_confianza(evento):
-    """V11: Sin cambios en lógica"""
-    color = evento.get('color_punto', 'sin_punto')
-    vrp_mw = evento.get('vrp_mw', 0)
-    pixeles_rojos = evento.get('pixeles_rojos', 0)
-    pixeles_negros = evento.get('pixeles_negros', 0)
-    
-    if np.isnan(vrp_mw) or vrp_mw <= 0:
-        return {
-            'tipo_registro': None,
-            'confianza': 'invalido',
-            'requiere_verificacion': False,
-            'nota': 'VRP inválido o cero',
-            'guardar': False,
-            'guardar_imagenes': False
-        }
-    
-    if color == 'sin_punto':
-        return {
-            'tipo_registro': 'FALSO_POSITIVO_OCR',
-            'confianza': 'alta',
-            'requiere_verificacion': False,
-            'nota': 'Sin píxeles en ROI - Evento fuera de ventana temporal',
-            'guardar': True,
-            'guardar_imagenes': False
-        }
-    
-    if color == 'rojo':
-        if pixeles_rojos > 100:
-            return {
-                'tipo_registro': 'ALERTA_TERMICA_OCR',
-                'confianza': 'alta',
-                'requiere_verificacion': False,
-                'nota': 'Píxeles rojos dominantes en ROI - Evento real',
-                'guardar': True,
-                'guardar_imagenes': True
-            }
-        else:
-            return {
-                'tipo_registro': 'ALERTA_TERMICA_OCR',
-                'confianza': 'media',
-                'requiere_verificacion': True,
-                'nota': f'Píxeles rojos bajos ({pixeles_rojos}) - Verificar',
-                'guardar': True,
-                'guardar_imagenes': True
-            }
-    
-    if color == 'negro':
-        return {
-            'tipo_registro': 'FALSO_POSITIVO_OCR',
-            'confianza': 'alta',
-            'requiere_verificacion': False,
-            'nota': 'Píxeles negros dominantes - Fuera de límite distancia',
-            'guardar': True,
-            'guardar_imagenes': False
-        }
-    
-    if color == 'mezcla':
-        return {
-            'tipo_registro': 'ALERTA_TERMICA_OCR',
-            'confianza': 'media',
-            'requiere_verificacion': True,
-            'nota': f'Mezcla rojos/negros - Evento en zona límite (VRP={vrp_mw} MW)',
-            'guardar': True,
-            'guardar_imagenes': True
-        }
-    
-    return {
-        'tipo_registro': 'FALSO_POSITIVO_OCR',
-        'confianza': 'baja',
-        'requiere_verificacion': False,
-        'nota': 'Caso no clasificado',
-        'guardar': True,
-        'guardar_imagenes': False
-    }
-
-
-def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df_ocr):
-    """
-    V14 DEFINITIVO: FIX + DEBUG
-    
-    PROBLEMA ENCONTRADO: La función está correcta pero los DataFrames
-    pueden estar corruptos o hay un bug en pandas .any()
-    
-    SOLUCIÓN: Agregar DEBUG detallado + usar .values.tolist() para evitar bugs de pandas
-    """
-    ts = evento['timestamp']
-    dt = evento['datetime']
-    vrp = evento['vrp_mw']
-    
-    print(f"\n      🐛 DEBUG V14 - VERIFICACIÓN DUPLICADOS:")
-    print(f"         Buscando: ts={ts} | {dt.strftime('%d-%b %H:%M:%S')} | {vrp} MW")
-    print(f"         Volcán: {volcan_nombre} | Sensor: {sensor}")
-    
-    # ========================================
-    # FIX V14: Convertir a lista para evitar bugs de pandas
-    # ========================================
-    
-    # 1. Verificar en consolidado
-    if not df_consolidado.empty:
-        # Filtrar por volcán y sensor
-        mask = (
-            (df_consolidado['Volcan'] == volcan_nombre) &
-            (df_consolidado['Sensor'] == sensor)
-        )
-        df_filtrado = df_consolidado[mask]
-        
-        print(f"\n         📊 CONSOLIDADO:")
-        print(f"            Total eventos {volcan_nombre}: {len(df_consolidado[df_consolidado['Volcan'] == volcan_nombre])}")
-        print(f"            Eventos {volcan_nombre} + {sensor}: {len(df_filtrado)}")
-        
-        if not df_filtrado.empty:
-            # Convertir timestamps a lista para comparación exacta
-            timestamps_consolidado = df_filtrado['timestamp'].values.tolist()
-            
-            print(f"            Últimos 3 timestamps: {timestamps_consolidado[-3:]}")
-            
-            if ts in timestamps_consolidado:
-                print(f"         ❌ DUPLICADO EXACTO ENCONTRADO en consolidado")
-                return False
-            else:
-                print(f"            ✅ NO encontrado en consolidado")
-        else:
-            print(f"            ✅ Sin eventos de este volcán+sensor en consolidado")
-    else:
-        print(f"\n         📊 CONSOLIDADO: vacío")
-    
-    # 2. Verificar en OCR
-    if not df_ocr.empty:
-        # Filtrar por volcán y sensor
-        mask = (
-            (df_ocr['Volcan'] == volcan_nombre) &
-            (df_ocr['Sensor'] == sensor)
-        )
-        df_filtrado = df_ocr[mask]
-        
-        print(f"\n         📊 OCR:")
-        print(f"            Total eventos {volcan_nombre}: {len(df_ocr[df_ocr['Volcan'] == volcan_nombre])}")
-        print(f"            Eventos {volcan_nombre} + {sensor}: {len(df_filtrado)}")
-        
-        if not df_filtrado.empty:
-            # Convertir timestamps a lista
-            timestamps_ocr = df_filtrado['timestamp'].values.tolist()
-            
-            print(f"            Últimos 3 timestamps: {timestamps_ocr[-3:]}")
-            
-            # Mostrar eventos recientes
-            print(f"            Últimos 3 eventos:")
-            for _, row in df_filtrado.tail(3).iterrows():
-                ts_csv = row['timestamp']
-                fecha_csv = row.get('Fecha_Satelite_UTC', 'N/A')
-                vrp_csv = row.get('VRP_MW', 0)
-                delta = ts - ts_csv
-                print(f"               - {fecha_csv} | {vrp_csv} MW | ts={ts_csv} (Δ={delta}s)")
-            
-            if ts in timestamps_ocr:
-                print(f"         ❌ DUPLICADO EXACTO ENCONTRADO en OCR")
-                return False
-            else:
-                print(f"            ✅ NO encontrado en OCR")
-        else:
-            print(f"            ✅ Sin eventos de este volcán+sensor en OCR")
-    else:
-        print(f"\n         📊 OCR: vacío")
-    
-    print(f"\n         ✅ RESULTADO: ES NUEVO (no es duplicado)")
-    return True
-
-
 # ========================================
-# FUNCIONES V5 (compatibilidad)
+# FASE 2: ESTRELLA VERDE (IMAGEN COMPLETA)
 # ========================================
-
-def analizar_pixeles_rojos(roi):
-    if roi is None or roi.size == 0:
-        return None, None
-    
-    mask_rojos = cv2.inRange(roi, (200, 0, 0), (255, 50, 50))
-    pixeles_rojos = np.sum(mask_rojos > 0)
-    total_pixeles = roi.shape[0] * roi.shape[1]
-    
-    if total_pixeles == 0:
-        return None, None
-    
-    porcentaje_rojos = (pixeles_rojos / total_pixeles) * 100
-    
-    if porcentaje_rojos > 30:
-        return 'alta', 'rojo_dominante'
-    elif porcentaje_rojos > 10:
-        return 'media', 'rojo_presente'
-    else:
-        return None, None
-
 
 def detectar_centro_estrella_verde(img_dist):
+    """
+    Detecta el centro de la estrella verde en imagen COMPLETA
+    
+    Returns:
+        y_centro (int): Coordenada Y del centro
+        None: Si no se detecta
+    """
     if img_dist is None or img_dist.size == 0:
         return None
     
@@ -499,13 +312,19 @@ def detectar_centro_estrella_verde(img_dist):
         return cy
     
     except Exception as e:
-        print(f"Error detectando estrella verde: {e}")
+        print(f"   ⚠️ Error detectando estrella: {e}")
         return None
 
 
 def validar_con_estrella_verde(img_dist, volcan_nombre):
+    """
+    V15: Valida posición Y de estrella verde en imagen COMPLETA
+    
+    Returns:
+        (confianza, tipo_registro, nota)
+    """
     if volcan_nombre not in LIMITES_Y_COORDENADAS:
-        return None, None, f"Volcán '{volcan_nombre}' sin coordenadas calibradas"
+        return None, None, f"Volcán '{volcan_nombre}' sin coordenadas"
     
     coords = LIMITES_Y_COORDENADAS[volcan_nombre]
     y_estrella = detectar_centro_estrella_verde(img_dist)
@@ -516,6 +335,7 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
     y_limite = coords['Y_LIMITE_PX']
     y_eje_x = coords['Y_EJE_X_PX']
     
+    # REGLA: Si Y estrella >= Y límite → DENTRO
     if y_estrella >= y_limite:
         if y_estrella >= y_eje_x:
             dist_km = 0.0
@@ -523,14 +343,226 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
             proporcion = (y_eje_x - y_estrella) / (y_eje_x - y_limite)
             dist_km = proporcion * coords['LIMITE_KM']
         
-        nota = f"Estrella verde en Y={y_estrella} (dentro límite Y={y_limite}, dist≈{dist_km:.2f} km)"
+        nota = f"Estrella en Y={y_estrella} (dentro límite Y={y_limite}, dist≈{dist_km:.2f} km)"
         return 'alta', 'ALERTA_TERMICA_OCR', nota
     else:
-        nota = f"Estrella verde en Y={y_estrella} (fuera límite Y={y_limite}, límite={coords['LIMITE_KM']} km)"
+        nota = f"Estrella en Y={y_estrella} (fuera límite Y={y_limite})"
         return 'baja', 'FALSO_POSITIVO_OCR', nota
 
 
+def clasificar_confianza(evento, img_dist_path, volcan_nombre):
+    """
+    V15: CLASIFICACIÓN EN 3 FASES (RESTAURADA)
+    
+    FASE 1: Píxeles rojos en ROI
+    FASE 2: Estrella verde en imagen completa ← NUEVO (restaurado)
+    FASE 3: Píxeles negros fallback
+    """
+    color = evento.get('color_punto', 'sin_punto')
+    vrp_mw = evento.get('vrp_mw', 0)
+    pixeles_rojos = evento.get('pixeles_rojos', 0)
+    pixeles_negros = evento.get('pixeles_negros', 0)
+    
+    if np.isnan(vrp_mw) or vrp_mw <= 0:
+        return {
+            'tipo_registro': None,
+            'confianza': 'invalido',
+            'requiere_verificacion': False,
+            'nota': 'VRP inválido o cero',
+            'guardar': False,
+            'guardar_imagenes': False
+        }
+    
+    if color == 'sin_punto':
+        return {
+            'tipo_registro': 'FALSO_POSITIVO_OCR',
+            'confianza': 'alta',
+            'requiere_verificacion': False,
+            'nota': 'Sin píxeles en ROI - Evento fuera de ventana temporal',
+            'guardar': True,
+            'guardar_imagenes': False
+        }
+    
+    # ===== FASE 1: PÍXELES ROJOS =====
+    if color == 'rojo':
+        if pixeles_rojos > 100:
+            return {
+                'tipo_registro': 'ALERTA_TERMICA_OCR',
+                'confianza': 'alta',
+                'requiere_verificacion': False,
+                'nota': 'Píxeles rojos dominantes en ROI - Evento real',
+                'guardar': True,
+                'guardar_imagenes': True
+            }
+        else:
+            return {
+                'tipo_registro': 'ALERTA_TERMICA_OCR',
+                'confianza': 'media',
+                'requiere_verificacion': True,
+                'nota': f'Píxeles rojos bajos ({pixeles_rojos}) - Verificar',
+                'guardar': True,
+                'guardar_imagenes': True
+            }
+    
+    # ===== FASE 2: ESTRELLA VERDE (NUEVO) =====
+    if color == 'negro':
+        # Antes de marcar como FALSO, verificar estrella verde
+        try:
+            img_dist = cv2.imread(img_dist_path)
+            if img_dist is not None:
+                img_dist_rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
+                
+                confianza_estrella, tipo_estrella, nota_estrella = validar_con_estrella_verde(
+                    img_dist_rgb, volcan_nombre
+                )
+                
+                if confianza_estrella is not None:
+                    print(f"      🌟 FASE 2 (estrella verde): {tipo_estrella}")
+                    print(f"         {nota_estrella}")
+                    
+                    return {
+                        'tipo_registro': tipo_estrella,
+                        'confianza': confianza_estrella,
+                        'requiere_verificacion': tipo_estrella == 'ALERTA_TERMICA_OCR',
+                        'nota': nota_estrella,
+                        'guardar': True,
+                        'guardar_imagenes': tipo_estrella == 'ALERTA_TERMICA_OCR'
+                    }
+        except Exception as e:
+            print(f"      ⚠️ Error en FASE 2: {e}")
+        
+        # Si FASE 2 falla, usar clasificación original
+        return {
+            'tipo_registro': 'FALSO_POSITIVO_OCR',
+            'confianza': 'alta',
+            'requiere_verificacion': False,
+            'nota': 'Píxeles negros dominantes - Fuera de límite distancia',
+            'guardar': True,
+            'guardar_imagenes': False
+        }
+    
+    # ===== MEZCLA =====
+    if color == 'mezcla':
+        return {
+            'tipo_registro': 'ALERTA_TERMICA_OCR',
+            'confianza': 'media',
+            'requiere_verificacion': True,
+            'nota': f'Mezcla rojos/negros - Evento en zona límite (VRP={vrp_mw} MW)',
+            'guardar': True,
+            'guardar_imagenes': True
+        }
+    
+    return {
+        'tipo_registro': 'FALSO_POSITIVO_OCR',
+        'confianza': 'baja',
+        'requiere_verificacion': False,
+        'nota': 'Caso no clasificado',
+        'guardar': True,
+        'guardar_imagenes': False
+    }
+
+
+def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df_ocr):
+    """V14: Sin cambios (con debug)"""
+    ts = evento['timestamp']
+    dt = evento['datetime']
+    vrp = evento['vrp_mw']
+    
+    print(f"\n      🐛 DEBUG V14 - VERIFICACIÓN DUPLICADOS:")
+    print(f"         Buscando: ts={ts} | {dt.strftime('%d-%b %H:%M:%S')} | {vrp} MW")
+    print(f"         Volcán: {volcan_nombre} | Sensor: {sensor}")
+    
+    # 1. Verificar en consolidado
+    if not df_consolidado.empty:
+        mask = (
+            (df_consolidado['Volcan'] == volcan_nombre) &
+            (df_consolidado['Sensor'] == sensor)
+        )
+        df_filtrado = df_consolidado[mask]
+        
+        print(f"\n         📊 CONSOLIDADO:")
+        print(f"            Total eventos {volcan_nombre}: {len(df_consolidado[df_consolidado['Volcan'] == volcan_nombre])}")
+        print(f"            Eventos {volcan_nombre} + {sensor}: {len(df_filtrado)}")
+        
+        if not df_filtrado.empty:
+            timestamps_consolidado = df_filtrado['timestamp'].values.tolist()
+            print(f"            Últimos 3 timestamps: {timestamps_consolidado[-3:]}")
+            
+            if ts in timestamps_consolidado:
+                print(f"         ❌ DUPLICADO EXACTO ENCONTRADO en consolidado")
+                return False
+            else:
+                print(f"            ✅ NO encontrado en consolidado")
+        else:
+            print(f"            ✅ Sin eventos de este volcán+sensor en consolidado")
+    else:
+        print(f"\n         📊 CONSOLIDADO: vacío")
+    
+    # 2. Verificar en OCR
+    if not df_ocr.empty:
+        mask = (
+            (df_ocr['Volcan'] == volcan_nombre) &
+            (df_ocr['Sensor'] == sensor)
+        )
+        df_filtrado = df_ocr[mask]
+        
+        print(f"\n         📊 OCR:")
+        print(f"            Total eventos {volcan_nombre}: {len(df_ocr[df_ocr['Volcan'] == volcan_nombre])}")
+        print(f"            Eventos {volcan_nombre} + {sensor}: {len(df_filtrado)}")
+        
+        if not df_filtrado.empty:
+            timestamps_ocr = df_filtrado['timestamp'].values.tolist()
+            print(f"            Últimos 3 timestamps: {timestamps_ocr[-3:]}")
+            
+            print(f"            Últimos 3 eventos:")
+            for _, row in df_filtrado.tail(3).iterrows():
+                ts_csv = row['timestamp']
+                fecha_csv = row.get('Fecha_Satelite_UTC', 'N/A')
+                vrp_csv = row.get('VRP_MW', 0)
+                delta = ts - ts_csv
+                print(f"               - {fecha_csv} | {vrp_csv} MW | ts={ts_csv} (Δ={delta}s)")
+            
+            if ts in timestamps_ocr:
+                print(f"         ❌ DUPLICADO EXACTO ENCONTRADO en OCR")
+                return False
+            else:
+                print(f"            ✅ NO encontrado en OCR")
+        else:
+            print(f"            ✅ Sin eventos de este volcán+sensor en OCR")
+    else:
+        print(f"\n         📊 OCR: vacío")
+    
+    print(f"\n         ✅ RESULTADO: ES NUEVO (no es duplicado)")
+    return True
+
+
+# ========================================
+# FUNCIONES V5 (compatibilidad - sin cambios)
+# ========================================
+
+def analizar_pixeles_rojos(roi):
+    if roi is None or roi.size == 0:
+        return None, None
+    
+    mask_rojos = cv2.inRange(roi, (200, 0, 0), (255, 50, 50))
+    pixeles_rojos = np.sum(mask_rojos > 0)
+    total_pixeles = roi.shape[0] * roi.shape[1]
+    
+    if total_pixeles == 0:
+        return None, None
+    
+    porcentaje_rojos = (pixeles_rojos / total_pixeles) * 100
+    
+    if porcentaje_rojos > 30:
+        return 'alta', 'rojo_dominante'
+    elif porcentaje_rojos > 10:
+        return 'media', 'rojo_presente'
+    else:
+        return None, None
+
+
 def clasificar_confianza_v5(img_dist_path, roi, volcan_nombre):
+    """V5: Función de compatibilidad (no se usa en V15)"""
     confianza_rojos, metodo_rojos = analizar_pixeles_rojos(roi)
     
     if confianza_rojos == 'alta':
