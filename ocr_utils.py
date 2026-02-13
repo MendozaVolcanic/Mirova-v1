@@ -1,7 +1,7 @@
 """
-OCR UTILS V15 DEFINITIVO - FIX REGRESIÓN ESTRELLA VERDE
-CAMBIO CRÍTICO: Agregar FASE 2 de clasificación (estrella verde en imagen completa)
-que se perdió en V11-V14
+OCR UTILS V16 FINAL - FIX CRÍTICO DETECCIÓN ESTRELLA VERDE
+PROBLEMA: Detectaba píxeles verdes de la interfaz MIROVA (Y=60-85)
+SOLUCIÓN: Filtrar solo zona del gráfico de distancia (Y>100, X>250)
 """
 
 import cv2
@@ -164,7 +164,7 @@ def extraer_eventos_latest10nti(img_path):
 
 
 def analizar_puntos_distancia(img_dist_path, eventos):
-    """V15: Análisis ROI temporal (sin cambios)"""
+    """V15: Sin cambios"""
     try:
         img_dist = cv2.imread(img_dist_path)
         if img_dist is None:
@@ -210,7 +210,7 @@ def analizar_puntos_distancia(img_dist_path, eventos):
         print(f"   🔴 Rojos: {num_rojos} px")
         print(f"   ⚫ Negros: {num_negros} px")
         
-        # Clasificación PRELIMINAR basada en ROI temporal
+        # Clasificación PRELIMINAR
         UMBRAL_PIXELES = 10
         
         tiene_rojos = num_rojos >= UMBRAL_PIXELES
@@ -274,15 +274,18 @@ def analizar_puntos_distancia(img_dist_path, eventos):
 
 
 # ========================================
-# FASE 2: ESTRELLA VERDE (IMAGEN COMPLETA)
+# FASE 2: ESTRELLA VERDE (FIX V16)
 # ========================================
 
 def detectar_centro_estrella_verde(img_dist):
     """
-    Detecta el centro de la estrella verde en imagen COMPLETA
+    V16: FIX CRÍTICO - Filtrar solo zona del gráfico de distancia
+    
+    PROBLEMA V15: Detectaba píxeles verdes de la interfaz MIROVA (Y=60-85)
+    SOLUCIÓN V16: Filtrar solo gráfico de distancia (Y>100, X>250)
     
     Returns:
-        y_centro (int): Coordenada Y del centro
+        y_centro (int): Coordenada Y del centro de la estrella
         None: Si no se detecta
     """
     if img_dist is None or img_dist.size == 0:
@@ -290,19 +293,47 @@ def detectar_centro_estrella_verde(img_dist):
     
     try:
         img_hsv = cv2.cvtColor(img_dist, cv2.COLOR_RGB2HSV)
+        
+        # Máscara verde HSV
         mask_verde = cv2.inRange(img_hsv, (40, 80, 80), (80, 255, 255))
-        contornos, _ = cv2.findContours(mask_verde, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # ===== FIX V16: FILTRAR SOLO ZONA DEL GRÁFICO =====
+        # Crear máscara que solo incluya:
+        # - Y > 100 (para excluir interfaz superior)
+        # - X > 250 (para enfocarse en gráfico de distancia, lado derecho)
+        mask_grafico = np.zeros_like(mask_verde)
+        mask_grafico[100:, 250:] = mask_verde[100:, 250:]
+        
+        # Encontrar contornos EN LA ZONA DEL GRÁFICO
+        contornos, _ = cv2.findContours(mask_grafico, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if len(contornos) == 0:
             return None
         
-        contornos_validos = [c for c in contornos if cv2.contourArea(c) > 10]
+        # Filtrar contornos pequeños (área > 50 px)
+        contornos_validos = [c for c in contornos if cv2.contourArea(c) > 50]
         
         if len(contornos_validos) == 0:
             return None
         
-        contorno_max = max(contornos_validos, key=cv2.contourArea)
+        # Buscar contorno en zona típica de estrella (Y entre 250-400)
+        # Esto es donde generalmente aparece la estrella del gráfico
+        contornos_estrella = []
+        for c in contornos_validos:
+            M = cv2.moments(c)
+            if M['m00'] > 0:
+                cy = int(M['m01'] / M['m00'])
+                if 250 <= cy <= 450:  # Zona típica de estrella
+                    contornos_estrella.append(c)
         
+        # Si hay contornos en zona de estrella, usar el más grande
+        if contornos_estrella:
+            contorno_max = max(contornos_estrella, key=cv2.contourArea)
+        else:
+            # Si no hay en zona típica, usar el más grande de todos
+            contorno_max = max(contornos_validos, key=cv2.contourArea)
+        
+        # Calcular centro
         M = cv2.moments(contorno_max)
         if M['m00'] == 0:
             return None
@@ -317,12 +348,7 @@ def detectar_centro_estrella_verde(img_dist):
 
 
 def validar_con_estrella_verde(img_dist, volcan_nombre):
-    """
-    V15: Valida posición Y de estrella verde en imagen COMPLETA
-    
-    Returns:
-        (confianza, tipo_registro, nota)
-    """
+    """V16: Sin cambios en lógica, solo usa nueva detección"""
     if volcan_nombre not in LIMITES_Y_COORDENADAS:
         return None, None, f"Volcán '{volcan_nombre}' sin coordenadas"
     
@@ -351,13 +377,7 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
 
 
 def clasificar_confianza(evento, img_dist_path, volcan_nombre):
-    """
-    V15: CLASIFICACIÓN EN 3 FASES (RESTAURADA)
-    
-    FASE 1: Píxeles rojos en ROI
-    FASE 2: Estrella verde en imagen completa ← NUEVO (restaurado)
-    FASE 3: Píxeles negros fallback
-    """
+    """V15: Sin cambios (usa nueva detección V16)"""
     color = evento.get('color_punto', 'sin_punto')
     vrp_mw = evento.get('vrp_mw', 0)
     pixeles_rojos = evento.get('pixeles_rojos', 0)
@@ -404,9 +424,8 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'guardar_imagenes': True
             }
     
-    # ===== FASE 2: ESTRELLA VERDE (NUEVO) =====
+    # ===== FASE 2: ESTRELLA VERDE =====
     if color == 'negro':
-        # Antes de marcar como FALSO, verificar estrella verde
         try:
             img_dist = cv2.imread(img_dist_path)
             if img_dist is not None:
@@ -431,7 +450,6 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         except Exception as e:
             print(f"      ⚠️ Error en FASE 2: {e}")
         
-        # Si FASE 2 falla, usar clasificación original
         return {
             'tipo_registro': 'FALSO_POSITIVO_OCR',
             'confianza': 'alta',
@@ -463,7 +481,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
 
 
 def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df_ocr):
-    """V14: Sin cambios (con debug)"""
+    """V14: Sin cambios"""
     ts = evento['timestamp']
     dt = evento['datetime']
     vrp = evento['vrp_mw']
@@ -537,7 +555,7 @@ def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df
 
 
 # ========================================
-# FUNCIONES V5 (compatibilidad - sin cambios)
+# FUNCIONES V5 (compatibilidad)
 # ========================================
 
 def analizar_pixeles_rojos(roi):
@@ -562,7 +580,7 @@ def analizar_pixeles_rojos(roi):
 
 
 def clasificar_confianza_v5(img_dist_path, roi, volcan_nombre):
-    """V5: Función de compatibilidad (no se usa en V15)"""
+    """V5: Función de compatibilidad"""
     confianza_rojos, metodo_rojos = analizar_pixeles_rojos(roi)
     
     if confianza_rojos == 'alta':
