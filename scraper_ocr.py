@@ -1,7 +1,6 @@
 """
-SCRAPER_OCR.PY V15 - FIX ESTRELLA VERDE
-CAMBIO CRÍTICO: Pasar img_dist_path y volcan_nombre a clasificar_confianza()
-para que FASE 2 (estrella verde) funcione correctamente
+SCRAPER_OCR.PY V17 - TUPUNGATITO + ROI TEMPORAL
+Compatible con ocr_utils V17 (ROI temporal restaurado)
 """
 
 import requests
@@ -31,7 +30,9 @@ VOLCANES_CONFIG = {
     "357090": {"nombre": "Copahue", "id_mirova": "Copahue"},
     "357150": {"nombre": "Puyehue-Cordon Caulle", "id_mirova": "PuyehueCordonCaulle"},
     "358041": {"nombre": "Chaiten", "id_mirova": "Chaiten"},
-    "357040": {"nombre": "PlanchonPeteroa", "id_mirova": "PlanchonPeteroa"}
+    "357040": {"nombre": "PlanchonPeteroa", "id_mirova": "PlanchonPeteroa"},
+    # ===== NUEVO: TUPUNGATITO =====
+    "357010": {"nombre": "Tupungatito", "id_mirova": "Tupungatito"}
 }
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
@@ -156,11 +157,11 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         print(f"  ℹ️ No se detectaron eventos")
         return []
     
-    # Análisis RGB de Dist.png
+    # Análisis RGB de Dist.png (AHORA CON ROI TEMPORAL)
     if os.path.exists(temp_dist):
         eventos = analizar_puntos_distancia(temp_dist, eventos)
     
-    # ===== V15: PREPARAR img_dist_path =====
+    # Preparar img_dist_path para FASE 2 (estrella verde)
     img_dist_path = temp_dist if os.path.exists(temp_dist) else None
     
     print(f"\n📋 PROCESANDO {len(eventos)} EVENTOS INDIVIDUALES:")
@@ -179,7 +180,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         print(f"   📌 EVENTO {i}/{len(eventos)}: {fecha_str} | {vrp_mw} MW")
         print(f"   {'='*60}")
         
-        # ===== CAMBIO CRÍTICO V15: Pasar 3 parámetros =====
+        # Clasificar confianza (3 parámetros)
         clasificacion = clasificar_confianza(evento, img_dist_path, nombre_v)
         
         print(f"   📊 CLASIFICACIÓN:")
@@ -203,7 +204,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         print(f"      ¿Es nuevo? {es_nuevo}")
         
         if not es_nuevo:
-            print(f"   ⏭️ SKIP: Ya existe en CSV (duplicado)")
+            print(f"   ⭕ SKIP: Ya existe en CSV (duplicado)")
             continue
         
         print(f"   ✅ ES NUEVO - Procediendo a guardar")
@@ -254,7 +255,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Requiere_Verificacion': clasificacion['requiere_verificacion'],
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
             'Nota_Validacion': clasificacion['nota'],
-            'Version_OCR': '1.0'
+            'Version_OCR': '17.0'  # V17
         }
         
         eventos_nuevos.append(nuevo_evento)
@@ -276,7 +277,7 @@ def procesar():
     os.makedirs(CARPETA_LOGS, exist_ok=True)
     
     print("="*80)
-    print("🔬 SCRAPER OCR V15 - INICIO")
+    print("🔬 SCRAPER OCR V17 - INICIO (+ Tupungatito + ROI Temporal)")
     print("="*80)
     
     session = requests.Session()
