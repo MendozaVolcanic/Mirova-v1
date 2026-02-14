@@ -1,0 +1,193 @@
+name: 🛡️ Validar Funcionalidades Críticas
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ocr_utils.py'
+      - 'scraper_ocr.py'
+      - 'scraper.py'
+      - 'config_sentinel2.py'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validar-roi-temporal:
+    runs-on: ubuntu-latest
+    name: ✅ Validar ROI Temporal
+    
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+      
+      - name: Verificar ROI_CONFIG existe
+        run: |
+          echo "🔍 Verificando ROI_CONFIG..."
+          
+          if ! grep -q "ROI_CONFIG" ocr_utils.py; then
+            echo "❌ ERROR CRÍTICO: ROI_CONFIG no encontrado en ocr_utils.py"
+            echo "::error file=ocr_utils.py,line=1::ROI_CONFIG eliminado - funcionalidad crítica perdida"
+            exit 1
+          fi
+          
+          echo "✅ ROI_CONFIG presente"
+      
+      - name: Verificar coordenadas ROI correctas
+        run: |
+          echo "🔍 Verificando coordenadas ROI..."
+          
+          if ! grep -q "0.8424" ocr_utils.py; then
+            echo "❌ ERROR: Coordenada x_start incorrecta o faltante"
+            echo "::error file=ocr_utils.py::Debe contener x_start_pct: 0.8424"
+            exit 1
+          fi
+          
+          if ! grep -q "0.8635" ocr_utils.py; then
+            echo "❌ ERROR: Coordenada x_end incorrecta o faltante"
+            exit 1
+          fi
+          
+          if ! grep -q "0.1817" ocr_utils.py; then
+            echo "❌ ERROR: Coordenada y_start incorrecta o faltante"
+            exit 1
+          fi
+          
+          if ! grep -q "0.4933" ocr_utils.py; then
+            echo "❌ ERROR: Coordenada y_end incorrecta o faltante"
+            exit 1
+          fi
+          
+          echo "✅ Coordenadas ROI correctas (x: 0.8424-0.8635, y: 0.1817-0.4933)"
+      
+      - name: Verificar uso del ROI en analizar_puntos_distancia
+        run: |
+          echo "🔍 Verificando que analizar_puntos_distancia use ROI..."
+          
+          if ! grep -q "roi = img_rgb\[roi_y_start:roi_y_end, roi_x_start:roi_x_end\]" ocr_utils.py; then
+            echo "❌ ERROR: analizar_puntos_distancia no extrae ROI temporal"
+            exit 1
+          fi
+          
+          echo "✅ Función usa ROI temporal correctamente"
+  
+  validar-sistema-3-fases:
+    runs-on: ubuntu-latest
+    name: ✅ Validar Sistema 3 Fases
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Verificar clasificar_confianza con 3 parámetros
+        run: |
+          echo "🔍 Verificando clasificar_confianza..."
+          
+          if ! grep -q "def clasificar_confianza(evento, img_dist_path, volcan_nombre)" ocr_utils.py; then
+            echo "❌ ERROR: clasificar_confianza no tiene 3 parámetros"
+            echo "::error file=ocr_utils.py::Debe ser: def clasificar_confianza(evento, img_dist_path, volcan_nombre)"
+            exit 1
+          fi
+          
+          echo "✅ clasificar_confianza con 3 parámetros"
+      
+      - name: Verificar detección píxeles rojos
+        run: |
+          echo "🔍 Verificando detección píxeles rojos..."
+          
+          if ! grep -q "mask_rojos" ocr_utils.py; then
+            echo "❌ ERROR: No se detectan píxeles rojos"
+            exit 1
+          fi
+          
+          echo "✅ Detección píxeles rojos presente"
+      
+      - name: Verificar detección píxeles negros
+        run: |
+          echo "🔍 Verificando detección píxeles negros..."
+          
+          if ! grep -q "mask_negros" ocr_utils.py; then
+            echo "❌ ERROR: No se detectan píxeles negros"
+            exit 1
+          fi
+          
+          echo "✅ Detección píxeles negros presente"
+  
+  validar-estrella-verde:
+    runs-on: ubuntu-latest
+    name: ✅ Validar Estrella Verde V16
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Verificar filtro de zona
+        run: |
+          echo "🔍 Verificando filtro zona estrella verde..."
+          
+          if ! grep -q "mask_grafico\[100:, 250:\]" ocr_utils.py; then
+            echo "❌ ERROR: Filtro de zona no encontrado"
+            echo "::error file=ocr_utils.py::Debe filtrar: mask_grafico[100:, 250:] para excluir interfaz MIROVA"
+            exit 1
+          fi
+          
+          echo "✅ Filtro zona presente (Y>100, X>250)"
+      
+      - name: Verificar función detectar_centro_estrella_verde
+        run: |
+          echo "🔍 Verificando función detectar_centro_estrella_verde..."
+          
+          if ! grep -q "def detectar_centro_estrella_verde" ocr_utils.py; then
+            echo "❌ ERROR: Función detectar_centro_estrella_verde no encontrada"
+            exit 1
+          fi
+          
+          echo "✅ Función detectar_centro_estrella_verde presente"
+  
+  validar-tupungatito:
+    runs-on: ubuntu-latest
+    name: ✅ Validar Tupungatito
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Verificar Tupungatito en configuraciones
+        run: |
+          echo "🔍 Verificando Tupungatito (357010)..."
+          
+          # Scraper principal
+          if grep -q "357010.*Tupungatito" scraper.py; then
+            echo "✅ Tupungatito en scraper.py"
+          else
+            echo "⚠️  ADVERTENCIA: Tupungatito no encontrado en scraper.py"
+          fi
+          
+          # Scraper OCR
+          if grep -q "357010.*Tupungatito" scraper_ocr.py; then
+            echo "✅ Tupungatito en scraper_ocr.py"
+          else
+            echo "⚠️  ADVERTENCIA: Tupungatito no encontrado en scraper_ocr.py"
+          fi
+          
+          # Límites Y
+          if grep -q "Tupungatito.*Y_LIMITE_PX" ocr_utils.py; then
+            echo "✅ Tupungatito con límites Y en ocr_utils.py"
+          else
+            echo "⚠️  ADVERTENCIA: Tupungatito sin límites Y"
+          fi
+  
+  validar-imports:
+    runs-on: ubuntu-latest
+    name: ✅ Validar Imports Necesarios
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Verificar import os
+        run: |
+          echo "🔍 Verificando imports en ocr_utils.py..."
+          
+          if ! grep -q "^import os$" ocr_utils.py; then
+            echo "❌ ERROR CRÍTICO: 'import os' faltante en ocr_utils.py"
+            echo "::error file=ocr_utils.py::Agregar 'import os' en imports"
+            exit 1
+          fi
+          
+          echo "✅ import os presente"
