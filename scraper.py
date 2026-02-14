@@ -21,7 +21,9 @@ VOLCANES_CONFIG = {
     "357090": {"nombre": "Copahue", "id_mirova": "Copahue", "limite_km": 4.0},
     "357150": {"nombre": "Puyehue-Cordon Caulle", "id_mirova": "PuyehueCordonCaulle", "limite_km": 20.0},
     "358041": {"nombre": "Chaiten", "id_mirova": "Chaiten", "limite_km": 5.0},
-    "357040": {"nombre": "PlanchonPeteroa", "id_mirova": "PlanchonPeteroa", "limite_km": 3.0}
+    "357040": {"nombre": "PlanchonPeteroa", "id_mirova": "PlanchonPeteroa", "limite_km": 3.0},
+    # ===== NUEVO: TUPUNGATITO =====
+    "357010": {"nombre": "Tupungatito", "id_mirova": "Tupungatito", "limite_km": 5.0}
 }
 
 CARPETA_PRINCIPAL = "monitoreo_satelital"
@@ -111,7 +113,7 @@ def procesar():
     session = requests.Session()
     ahora_cl = datetime.now(pytz.timezone('America/Santiago')).strftime("%Y-%m-%d %H:%M:%S")
 
-    log_debug("INICIO SCRAPER", "INFO")
+    log_debug("INICIO SCRAPER V17 (+ Tupungatito)", "INFO")
 
     try:
         df_master = pd.read_csv(DB_MASTER) if os.path.exists(DB_MASTER) else pd.DataFrame(columns=COLUMNAS_ESTANDAR)
@@ -156,11 +158,7 @@ def procesar():
                 else:
                     tipo = "FALSO_POSITIVO"
             else:
-                # ===== CAMBIO APLICADO =====
-                # Antes: tipo = "EVIDENCIA_DIARIA" if sensor == "VIIRS375" else "RUTINA"
-                # Ahora: Todo VRP=0 es RUTINA (sin descargar imágenes)
                 tipo = "RUTINA"
-                # ===========================
 
             clasificacion = obtener_clasificacion_mirova(vrp, es_alerta_real)
 
@@ -181,8 +179,6 @@ def procesar():
                 ruta_foto = "No descargada"
                 editado = "NO"
 
-                # Solo descargar imágenes si es alerta real (VRP > 0 y dentro de rango)
-                # RUTINA (VRP=0) NO descarga imágenes
                 if (int(time.time()) - ts) < 86400:
                     if es_alerta_real:
                         ruta_foto = descargar_v104(session, id_v, dt_utc, sensor, True)
