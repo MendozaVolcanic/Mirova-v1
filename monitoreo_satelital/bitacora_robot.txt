@@ -37130,3 +37130,6 @@
 [2026-02-14 09:25:36] INICIO SCRAPER
 [2026-02-14 09:25:37] Filas leídas desde latest.php: 525
 [2026-02-14 09:25:37] Proceso completado correctamente.
+[2026-02-14 09:30:41] INICIO SCRAPER
+[2026-02-14 09:30:42] Filas leídas desde latest.php: 525
+[2026-02-14 09:30:42] Proceso completado correctamente.
