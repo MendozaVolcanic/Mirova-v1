@@ -14,6 +14,7 @@ import pytesseract
 from datetime import datetime
 import pytz
 import re
+import os
 from PIL import Image
 
 # ========================================
