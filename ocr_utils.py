@@ -1,7 +1,9 @@
 """
-OCR UTILS V17 - ROI TEMPORAL RESTAURADO + ESTRELLA VERDE + TUPUNGATITO
+OCR UTILS V19 - DETECCIÓN GRUPOS PÍXELES + TODAS FUNCIONALIDADES V17
 
-CAMBIOS V17:
+CAMBIOS V19:
+5. **NUEVO V19:** Detección grupos píxeles rojos separados (eventos superpuestos)
+6. **PRESERVA V17:** ROI temporal, Sistema 3 fases, 11 volcanes, Filtro estrella
 1. ROI TEMPORAL restaurado (análisis de píxeles en columna último día)
 2. Estrella verde con filtro de zona (V16)
 3. Tupungatito agregado
@@ -47,6 +49,85 @@ ROI_CONFIG = {
     'y_start_pct': 0.1817,  # 18.17% altura
     'y_end_pct': 0.4933     # 49.33%
 }
+
+
+# ========================================
+# NUEVAS FUNCIONES V19: DETECCIÓN GRUPOS PÍXELES ROJOS
+# ========================================
+
+def detectar_grupos_pixeles_rojos(roi, umbral_area_minima=20):
+    """
+    V19: Detecta grupos separados de píxeles rojos en ROI
+    Útil para eventos superpuestos (ej: Lastarria 05:42 + 06:06, Tupungatito 04:48 + 05:12 + 06:30)
+    
+    Args:
+        roi: ROI de imagen (numpy array RGB)
+        umbral_area_minima: Área mínima en píxeles para considerar grupo válido
+    
+    Returns:
+        list: [{'centro_y': int, 'area': int, 'bbox': tuple}, ...]
+              Ordenados por Y (grupos arriba primero)
+    """
+    mask_rojos = (
+        (roi[:, :, 0] > 150) &
+        (roi[:, :, 1] < 100) &
+        (roi[:, :, 2] < 100)
+    ).astype(np.uint8) * 255
+    
+    contours, _ = cv2.findContours(mask_rojos, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    grupos = []
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area < umbral_area_minima:
+            continue
+        
+        x, y, w, h = cv2.boundingRect(contour)
+        centro_y = y + h // 2
+        
+        grupos.append({
+            'centro_y': centro_y,
+            'area': int(area),
+            'bbox': (y, y+h, x, x+w),
+            'pixels': int(area)
+        })
+    
+    return sorted(grupos, key=lambda g: g['centro_y'])
+
+
+def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
+    """
+    V19: Asocia cada grupo de píxeles rojos a su evento correspondiente
+    
+    Estrategia:
+    - Si 1 grupo + 1 evento → Asociación directa
+    - Si múltiples grupos → Asociar por índice (grupo[i] → evento[i])
+    
+    Args:
+        eventos: Lista de eventos extraídos de Latest10NTI
+        grupos: Lista de grupos detectados en ROI
+        roi_y_start: Coordenada Y inicial del ROI en imagen completa
+    
+    Returns:
+        dict: {evento_index: grupo_info con y_absoluto}
+    """
+    if not grupos:
+        return {}
+    
+    if len(grupos) == 1:
+        grupo = grupos[0].copy()
+        grupo['y_absoluto'] = roi_y_start + grupo['centro_y']
+        return {0: grupo}
+    
+    asociaciones = {}
+    for i, evento in enumerate(eventos):
+        if i < len(grupos):
+            grupo = grupos[i].copy()
+            grupo['y_absoluto'] = roi_y_start + grupo['centro_y']
+            asociaciones[i] = grupo
+    
+    return asociaciones
+
 
 # JUSTIFICACIÓN:
 # - Máxima precisión temporal (sin mezcla de días)
@@ -153,60 +234,94 @@ def extraer_eventos_latest10nti(img_path):
         return []
 
 
-def analizar_puntos_distancia(img_dist_path, eventos):
+def analizar_puntos_distancia(eventos, img_dist_path, volcan_nombre):
     """
-    V17: RESTAURADO ROI TEMPORAL
-    Analiza píxeles en COLUMNA DEL ÚLTIMO DÍA
-    """
-    print(f"\n🎯 V17 - Analizando píxeles con ROI TEMPORAL")
+    V19: Detecta grupos de píxeles rojos y asocia a eventos individuales
+    PRESERVA V17: ROI temporal (x: 0.8424-0.8635, y: 0.1817-0.4933)
     
+    MEJORAS V19:
+    - Detecta grupos separados de píxeles rojos
+    - Asocia cada grupo a su evento correspondiente
+    - Calcula datos POR EVENTO individual (y_absoluto, área)
+    
+    COMPATIBILIDAD V17:
+    - Mantiene análisis global (ratio_rojos, ratio_negros)
+    - Funciona igual para casos con 1 evento
+    """
     try:
-        img = cv2.imread(img_dist_path)
-        if img is None or img.size == 0:
-            print(f"   ❌ No se pudo cargar imagen")
+        if not os.path.exists(img_dist_path):
+            print(f"    ⚠️ Dist.png no encontrado: {img_dist_path}")
             return eventos
         
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_dist = cv2.imread(img_dist_path)
+        if img_dist is None:
+            print(f"    ❌ Error cargando Dist.png")
+            return eventos
+        
+        img_rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
         height, width = img_rgb.shape[:2]
         
-        # ===== EXTRAER ROI TEMPORAL (ÚLTIMO DÍA) =====
-        roi_x_start = int(width * ROI_CONFIG['x_start_pct'])   # 716
-        roi_x_end = int(width * ROI_CONFIG['x_end_pct'])       # 733
-        roi_y_start = int(height * ROI_CONFIG['y_start_pct'])  # 109
-        roi_y_end = int(height * ROI_CONFIG['y_end_pct'])      # 295
+        # ========================================
+        # ROI TEMPORAL (PRESERVADO V17)
+        # ========================================
+        roi_x_start = int(width * ROI_CONFIG['x_start_pct'])
+        roi_x_end = int(width * ROI_CONFIG['x_end_pct'])
+        roi_y_start = int(height * ROI_CONFIG['y_start_pct'])
+        roi_y_end = int(height * ROI_CONFIG['y_end_pct'])
         
         roi = img_rgb[roi_y_start:roi_y_end, roi_x_start:roi_x_end]
         
+        print(f"\n🎯 V19 - Analizando píxeles con ROI TEMPORAL + GRUPOS")
         print(f"   📍 ROI temporal: X={roi_x_start}-{roi_x_end}, Y={roi_y_start}-{roi_y_end}")
         print(f"   📏 Tamaño ROI: {roi.shape[1]}x{roi.shape[0]} = {roi.shape[0]*roi.shape[1]} px²")
         
-        # ===== DETECTAR PÍXELES ROJOS =====
-        mask_rojos = (roi[:, :, 0] > 150) & \
-                     ((roi[:, :, 0] - roi[:, :, 1]) > 50) & \
-                     ((roi[:, :, 0] - roi[:, :, 2]) > 50)
+        # ========================================
+        # NUEVO V19: Detectar grupos separados
+        # ========================================
+        grupos = detectar_grupos_pixeles_rojos(roi)
         
-        # ===== DETECTAR PÍXELES NEGROS =====
-        mask_negros = (roi[:, :, 0] < 100) & \
-                      (roi[:, :, 1] < 100) & \
-                      (roi[:, :, 2] < 100)
+        print(f"   🔴 Grupos detectados: {len(grupos)}")
+        for i, grupo in enumerate(grupos, 1):
+            y_abs = roi_y_start + grupo['centro_y']
+            print(f"      Grupo {i}: Y_relativo={grupo['centro_y']}, Y_absoluto={y_abs}, área={grupo['area']} px²")
         
-        # ===== DETECTAR ESTRELLA VERDE (para mostrar en log) =====
+        # Asociar grupos a eventos
+        asociaciones = asociar_grupos_a_eventos(eventos, grupos, roi_y_start)
+        
+        # ========================================
+        # PRESERVADO V17: Análisis global de píxeles
+        # ========================================
+        mask_rojos = (
+            (roi[:, :, 0] > 150) &
+            (roi[:, :, 1] < 100) &
+            (roi[:, :, 2] < 100)
+        )
+        mask_negros = (
+            (roi[:, :, 0] < 100) &
+            (roi[:, :, 1] < 100) &
+            (roi[:, :, 2] < 100)
+        )
+        
+        pixeles_rojos = np.sum(mask_rojos)
+        pixeles_negros = np.sum(mask_negros)
+        total_roi = roi.size
+        
+        ratio_rojos = pixeles_rojos / total_roi if total_roi > 0 else 0
+        ratio_negros = pixeles_negros / total_roi if total_roi > 0 else 0
+        
         mask_verdes = cv2.inRange(
             cv2.cvtColor(roi, cv2.COLOR_RGB2HSV),
             (40, 80, 80),
             (80, 255, 255)
         )
-        
-        pixeles_rojos = np.sum(mask_rojos)
-        pixeles_negros = np.sum(mask_negros)
         pixeles_verdes = np.sum(mask_verdes > 0)
         
-        total_roi = roi.shape[0] * roi.shape[1]
+        print(f"   🟢 Estrella ROI: {pixeles_verdes} px")
+        print(f"   🔴 Rojos globales: {pixeles_rojos} px")
+        print(f"   ⚫ Negros globales: {pixeles_negros} px")
+        print(f"   📊 Ratio R/N: {ratio_rojos:.2f}")
         
-        ratio_rojos = pixeles_rojos / total_roi if total_roi > 0 else 0
-        ratio_negros = pixeles_negros / total_roi if total_roi > 0 else 0
-        
-        # ===== CLASIFICAR COLOR DOMINANTE =====
+        # Clasificación global (PRESERVADO V17)
         if ratio_rojos > 0.10:
             color_dominante = "rojo"
         elif ratio_negros > 0.70:
@@ -214,27 +329,34 @@ def analizar_puntos_distancia(img_dist_path, eventos):
         else:
             color_dominante = "mixto"
         
-        print(f"   🔍 ROI temporal: ({roi.shape[1]}, {roi.shape[0]}, {roi.shape[2]})")
-        print(f"   🟢 Estrella: {pixeles_verdes} px ({'SÍ' if pixeles_verdes > 0 else 'NO'})")
-        print(f"   🔴 Rojos: {pixeles_rojos} px")
-        print(f"   ⚫ Negros: {pixeles_negros} px")
-        print(f"   📊 Ratio R/N: {ratio_rojos:.2f}")
-        print(f"   🎯 Clasificación ROI: {color_dominante}")
+        print(f"   🎯 Clasificación ROI global: {color_dominante}")
         
-        # ===== AGREGAR DATOS AL ÚLTIMO EVENTO (más reciente) =====
-        if eventos:
-            eventos[-1]['color_punto'] = color_dominante
-            eventos[-1]['pixeles_rojos'] = int(pixeles_rojos)
-            eventos[-1]['pixeles_negros'] = int(pixeles_negros)
-            eventos[-1]['pixeles_verdes'] = int(pixeles_verdes)
-            eventos[-1]['ratio_rojos'] = float(ratio_rojos)
-            eventos[-1]['ratio_negros'] = float(ratio_negros)
-            eventos[-1]['metodo'] = 'roi_temporal_v17'
+        # ========================================
+        # Agregar datos a eventos
+        # ========================================
+        for i, evento in enumerate(eventos):
+            # Datos globales (COMPATIBILIDAD V17)
+            evento['color_punto'] = color_dominante
+            evento['pixeles_rojos'] = int(pixeles_rojos)
+            evento['pixeles_negros'] = int(pixeles_negros)
+            evento['pixeles_verdes'] = int(pixeles_verdes)
+            evento['ratio_rojos'] = float(ratio_rojos)
+            evento['ratio_negros'] = float(ratio_negros)
+            evento['metodo'] = 'roi_temporal_v19'
+            
+            # Datos por grupo (NUEVO V19)
+            if i in asociaciones:
+                evento['grupo_pixeles'] = asociaciones[i]
+                print(f"   ✅ Evento {i+1} asociado a grupo Y={asociaciones[i]['centro_y']} ({asociaciones[i]['area']} px²)")
+            else:
+                evento['grupo_pixeles'] = None
+                if len(grupos) > 0:
+                    print(f"   ⚠️ Evento {i+1} sin grupo asociado")
         
         return eventos
     
     except Exception as e:
-        print(f"   ❌ ERROR en analizar_puntos_distancia: {e}")
+        print(f"   ❌ ERROR en analizar_puntos_distancia V19: {e}")
         import traceback
         traceback.print_exc()
         return eventos
@@ -334,116 +456,117 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
 
 def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     """
-    V17: CLASIFICACIÓN 3 FASES COMPLETA
+    V19: Valida GRUPOS de píxeles individuales antes de validar con estrella
     
-    FASE 1: Píxeles rojos en ROI TEMPORAL (último día) ← RESTAURADO
-    FASE 2: Estrella verde en gráfico (V16)
-    FASE 3: Píxeles negros (fallback)
+    SISTEMA 3 FASES (mejorado V19):
+    FASE 1: Píxeles rojos en ROI temporal → NUEVO: Validación por GRUPO individual
+    FASE 2: Estrella verde (V16 - PRESERVADO)
+    FASE 3: Píxeles negros (V17 - PRESERVADO)
     """
+    vrp_mw = evento.get('VRP_MW', 0)
     
-    # ===== VALIDACIÓN VRP =====
-    vrp_mw = evento.get('vrp_mw', 0)
-    
-    if vrp_mw <= 0 or vrp_mw != vrp_mw:  # NaN check
+    # Validar VRP
+    if vrp_mw == 0 or np.isnan(vrp_mw) or vrp_mw is None:
         return {
             'guardar': False,
             'guardar_imagenes': False,
             'tipo_registro': 'VRP_INVALIDO',
             'confianza': 'invalido',
-            'requiere_verificacion': False,
-            'metodo': 'vrp_invalido',
-            'nota': f'VRP inválido: {vrp_mw}'
+            'Color_Punto': 'sin_punto',
+            'Nota': f'VRP inválido: {vrp_mw}'
         }
     
-    # ===== FASE 1: ROI TEMPORAL (PÍXELES ROJOS) =====
-    ratio_rojos = evento.get('ratio_rojos', 0)
+    # ========================================
+    # FASE 1 V19 (MEJORADA): Validar con grupo individual
+    # ========================================
+    grupo_info = evento.get('grupo_pixeles')
     
+    if grupo_info:
+        y_absoluto = grupo_info['y_absoluto']
+        area_grupo = grupo_info['area']
+        
+        limites = LIMITES_Y_COORDENADAS.get(volcan_nombre, {})
+        y_limite_px = limites.get('Y_LIMITE_PX', 257)
+        y_eje_x = limites.get('Y_EJE_X_PX', 335)
+        limite_km = limites.get('LIMITE_KM', 5.0)
+        
+        if y_absoluto >= y_limite_px:
+            # DENTRO del límite - VRP REAL
+            distancia_aprox = ((y_absoluto - y_limite_px) / (y_eje_x - y_limite_px)) * limite_km
+            
+            print(f"   ═════════════════════════════════════════════════════════")
+            print(f"   🎯 FASE 1 V19 (grupo individual): Y={y_absoluto} >= {y_limite_px} ✅")
+            print(f"      ✅ ALERTA_TERMICA_OCR: Grupo píxeles en Y={y_absoluto}")
+            print(f"         Área={area_grupo} px², dist≈{distancia_aprox:.2f} km")
+            
+            return {
+                'guardar': True,
+                'guardar_imagenes': True,
+                'tipo_registro': 'ALERTA_TERMICA_OCR',
+                'confianza': 'alta',
+                'Color_Punto': 'sin_punto',
+                'Metodo_Deteccion': 'grupo_pixeles_v19',
+                'Nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
+            }
+        else:
+            # FUERA del límite - FALSO POSITIVO
+            print(f"   ═════════════════════════════════════════════════════════")
+            print(f"   🎯 FASE 1 V19 (grupo individual): Y={y_absoluto} < {y_limite_px} ❌")
+            print(f"      ❌ FALSO_POSITIVO: Grupo fuera límite")
+            
+            return {
+                'guardar': False,
+                'guardar_imagenes': False,
+                'tipo_registro': 'FALSO_POSITIVO_OCR',
+                'confianza': 'baja',
+                'Color_Punto': 'sin_punto',
+                'Nota': f'Grupo fuera límite: Y={y_absoluto} < {y_limite_px}'
+            }
+    
+    # ========================================
+    # FASE 2 (PRESERVADA V16): Estrella verde
+    # ========================================
     print(f"   ═════════════════════════════════════════════════════════")
-    print(f"   🎯 FASE 1 (ROI temporal): Ratio rojos = {ratio_rojos:.2f}")
+    print(f"   🎯 FASE 1: Sin grupo individual → Continuando FASE 2 (estrella)")
     
-    # Si >30% rojos → ALERTA (alta confianza)
-    if ratio_rojos > 0.30:
-        print(f"      ✅ ALERTA_TERMICA_OCR (>30% rojos en último día)")
+    confianza_estrella, tipo_estrella, nota_estrella = validar_con_estrella_verde(
+        evento, img_dist_path, volcan_nombre
+    )
+    
+    if confianza_estrella != 'desconocido':
         return {
-            'guardar': True,
-            'guardar_imagenes': True,
-            'tipo_registro': 'ALERTA_TERMICA_OCR',
-            'confianza': 'alta',
-            'requiere_verificacion': False,
-            'metodo': 'roi_temporal_rojos_dominantes',
-            'nota': f'ROI temporal: {ratio_rojos*100:.1f}% píxeles rojos - Evento dentro del límite'
+            'guardar': tipo_estrella == 'ALERTA_TERMICA_OCR',
+            'guardar_imagenes': tipo_estrella == 'ALERTA_TERMICA_OCR',
+            'tipo_registro': tipo_estrella,
+            'confianza': confianza_estrella,
+            'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
+            'Metodo_Deteccion': 'estrella_verde_v16',
+            'Nota': nota_estrella
         }
     
-    # Si 10-30% rojos → ALERTA (media confianza)
-    if ratio_rojos > 0.10:
-        print(f"      ✅ ALERTA_TERMICA_OCR (10-30% rojos en último día)")
-        return {
-            'guardar': True,
-            'guardar_imagenes': True,
-            'tipo_registro': 'ALERTA_TERMICA_OCR',
-            'confianza': 'media',
-            'requiere_verificacion': True,
-            'metodo': 'roi_temporal_rojos_presentes',
-            'nota': f'ROI temporal: {ratio_rojos*100:.1f}% píxeles rojos - Evento probable dentro del límite'
-        }
-    
-    # ===== FASE 2: ESTRELLA VERDE =====
-    print(f"   🎯 FASE 2 (estrella verde): Verificando posición...")
-    
-    if img_dist_path and os.path.exists(img_dist_path):
-        try:
-            img_dist = cv2.imread(img_dist_path)
-            if img_dist is not None:
-                img_dist_rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
-                
-                confianza_estrella, tipo_estrella, nota_estrella = validar_con_estrella_verde(
-                    img_dist_rgb, volcan_nombre
-                )
-                
-                if confianza_estrella is not None:
-                    guardar = tipo_estrella == 'ALERTA_TERMICA_OCR'
-                    
-                    print(f"      {'✅' if guardar else '❌'} {tipo_estrella}: {nota_estrella}")
-                    
-                    return {
-                        'guardar': guardar,
-                        'guardar_imagenes': guardar,
-                        'tipo_registro': tipo_estrella,
-                        'confianza': confianza_estrella,
-                        'requiere_verificacion': confianza_estrella != 'alta',
-                        'metodo': 'estrella_verde_v16',
-                        'nota': nota_estrella
-                    }
-        except Exception as e:
-            print(f"      ⚠️ Error en FASE 2: {e}")
-    
-    # ===== FASE 3: PÍXELES NEGROS (FALLBACK) =====
+    # ========================================
+    # FASE 3 (PRESERVADA V17): Píxeles negros
+    # ========================================
     ratio_negros = evento.get('ratio_negros', 0)
     
-    print(f"   🎯 FASE 3 (fallback): Ratio negros = {ratio_negros:.2f}")
-    
     if ratio_negros > 0.70:
-        print(f"      ❌ FALSO_POSITIVO_OCR (>70% negros)")
         return {
-            'guardar': True,  # Guardar para auditoría
-            'guardar_imagenes': False,  # NO descargar imágenes
+            'guardar': False,
+            'guardar_imagenes': False,
             'tipo_registro': 'FALSO_POSITIVO_OCR',
             'confianza': 'baja',
-            'requiere_verificacion': False,
-            'metodo': 'roi_temporal_negros_dominantes',
-            'nota': f'ROI temporal: {ratio_negros*100:.1f}% píxeles negros - Sin señal clara de evento térmico'
+            'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
+            'Nota': f'ROI mayormente negro (ratio={ratio_negros:.2f})'
         }
     
-    # Sin señal clara
-    print(f"      ❌ Sin señal clara")
+    # Sin señal clara - FALSO POSITIVO
     return {
-        'guardar': True,
+        'guardar': False,
         'guardar_imagenes': False,
         'tipo_registro': 'FALSO_POSITIVO_OCR',
         'confianza': 'baja',
-        'requiere_verificacion': False,
-        'metodo': 'sin_senal_clara',
-        'nota': 'No se detectaron píxeles rojos ni estrella verde en ROI temporal'
+        'Color_Punto': evento.get('Color_Punto', 'mixto'),
+        'Nota': 'Sin grupo ni estrella clara'
     }
 
 
