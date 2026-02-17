@@ -39,6 +39,40 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ========================================
+      # NUEVO: VERIFICACIÓN ANTES DE EJECUTAR
+      # ========================================
+      - name: Verificar módulos instalados
+        run: |
+          echo "🔍 Verificando módulos críticos..."
+          
+          python -c "import requests; print('✅ requests')" || exit 1
+          python -c "import pandas; print('✅ pandas')" || exit 1
+          python -c "import pytz; print('✅ pytz')" || exit 1
+          python -c "import numpy; print('✅ numpy')" || exit 1
+          python -c "import cv2; print('✅ opencv-python')" || exit 1
+          python -c "import pytesseract; print('✅ pytesseract')" || exit 1
+          python -c "from PIL import Image; print('✅ Pillow')" || exit 1
+          
+          echo ""
+          echo "🧪 Test import ocr_utils..."
+          python -c "
+          import ocr_utils
+          print('✅ ocr_utils importado')
+          
+          # Verificar funciones
+          assert hasattr(ocr_utils, 'extraer_eventos_latest10nti'), 'Falta extraer_eventos_latest10nti'
+          assert hasattr(ocr_utils, 'analizar_puntos_distancia'), 'Falta analizar_puntos_distancia'
+          assert hasattr(ocr_utils, 'clasificar_confianza'), 'Falta clasificar_confianza'
+          assert hasattr(ocr_utils, 'verificar_evento_no_existe'), 'Falta verificar_evento_no_existe'
+          
+          print('✅ Todas las funciones presentes')
+          " || exit 1
+          
+          echo ""
+          echo "✅ VERIFICACIÓN COMPLETA - Listo para ejecutar OCR"
+      # ========================================
+
       - name: Ejecutar Scraper OCR
         run: python scraper_ocr.py
 
