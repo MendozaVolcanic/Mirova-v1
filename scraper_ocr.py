@@ -182,9 +182,9 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     eventos = eventos_validos
     # ==============================================
     
-    # Análisis RGB de Dist.png (AHORA CON ROI TEMPORAL)
+    # Análisis RGB de Dist.png (ROI TEMPORAL)
     if os.path.exists(temp_dist):
-        eventos = analizar_puntos_distancia(temp_dist, eventos)
+        eventos = analizar_puntos_distancia(temp_dist, eventos, nombre_v)
     
     # Preparar img_dist_path para FASE 2 (estrella verde)
     img_dist_path = temp_dist if os.path.exists(temp_dist) else None
