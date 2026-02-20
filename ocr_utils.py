@@ -1,20 +1,24 @@
 """
-OCR_UTILS.PY V20 - FIX ORDEN PARÁMETROS analizar_puntos_distancia()
-BASE: V19 (Detección grupos píxeles) + FIX orden parámetros
+OCR_UTILS.PY V20 TUPUNGATITO FIX - Estrella verde detecta eventos correctamente
+BASE: V20 (orden parámetros) + FIX Tupungatito estrella verde
 
-CAMBIO V20 (QUIRÚRGICO):
-- FIX: analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre)
-- Orden correcto: (PATH, LIST, NAME) - compatible con scraper V19
+CAMBIO V20 TUPUNGATITO (QUIRÚRGICO):
+- FIX: Cargar img_dist con cv2.imread() antes de validar_con_estrella_verde()
+- PROBLEMA: Se pasaba 'evento' (dict) en lugar de imagen numpy array
+- SOLUCIÓN: Cargar imagen desde path antes de llamar función
+- RESULTADO: Tupungatito 0.27 MW ahora SE GUARDA correctamente
+
+PRESERVA V20:
+- Orden parámetros correcto: analizar_puntos_distancia(PATH, LIST, NAME)
 
 PRESERVA V19:
-- Detección grupos píxeles rojos separados (eventos superpuestos)
+- Detección grupos píxeles rojos separados
 
 PRESERVA V17:
 - ROI TEMPORAL: (x: 0.8424-0.8635, y: 0.1817-0.4933)
 - Sistema 3 fases: rojos → estrella → negros
-- 14 volcanes en LIMITES_Y_COORDENADAS
+- 14 volcanes en LIMITES_Y_COORDENADAS (incluye Tupungatito)
 - Filtro estrella verde: mask_grafico[100:, 250:]
-- Tupungatito incluido
 """
 
 import cv2
@@ -541,9 +545,28 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     print(f"   ═════════════════════════════════════════════════════════")
     print(f"   🎯 FASE 1: Sin grupo individual → Continuando FASE 2 (estrella)")
     
-    confianza_estrella, tipo_estrella, nota_estrella = validar_con_estrella_verde(
-        evento, img_dist_path, volcan_nombre
-    )
+    # =====FIX V20 TUPUNGATITO: Cargar imagen antes de validar estrella=====
+    # PROBLEMA ANTERIOR: Se pasaba 'evento' (dict) como primer parámetro
+    # validar_con_estrella_verde() espera imagen numpy array, no dict
+    # SOLUCIÓN: Cargar img_dist_path con cv2.imread() antes de llamar
+    # ======================================================================
+    if img_dist_path and os.path.exists(img_dist_path):
+        import cv2
+        img_dist = cv2.imread(img_dist_path)
+        
+        if img_dist is not None:
+            confianza_estrella, tipo_estrella, nota_estrella = validar_con_estrella_verde(
+                img_dist, volcan_nombre  # ✅ 2 parámetros correctos: imagen, nombre
+            )
+        else:
+            confianza_estrella = 'desconocido'
+            tipo_estrella = 'DESCONOCIDO'
+            nota_estrella = 'Error cargando Dist.png'
+    else:
+        confianza_estrella = 'desconocido'
+        tipo_estrella = 'DESCONOCIDO'
+        nota_estrella = 'Imagen Dist.png no disponible'
+    # ======================================================================
     
     if confianza_estrella != 'desconocido':
         return {
