@@ -1,6 +1,7 @@
 """
-SCRAPER_OCR.PY V18 - FILTRO FECHA 24H + ROI TEMPORAL + TUPUNGATITO
-BASE: V17 (14 Feb funcionando) + Filtro 24h para evitar eventos antiguos
+SCRAPER_OCR.PY V19 FINAL - ORDEN CORRECTO DE PARÁMETROS
+BASE: V17 (14-Feb funcionando) + Filtro 24h
+FIX CRÍTICO: analizar_puntos_distancia(PATH, LISTA, NOMBRE) - ORDEN CORRECTO
 """
 
 import requests
@@ -182,9 +183,13 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     eventos = eventos_validos
     # ==============================================
     
-    # Análisis RGB de Dist.png (ROI TEMPORAL)
+    # =====CRÍTICO V19: ORDEN CORRECTO DE PARÁMETROS=====
+    # analizar_puntos_distancia(PATH_string, LISTA_eventos, NOMBRE_string)
+    # NO cambiar el orden - causa TypeError si se invierten
+    # ====================================================
     if os.path.exists(temp_dist):
         eventos = analizar_puntos_distancia(temp_dist, eventos, nombre_v)
+        #                                   ^1°PATH  ^2°LIST  ^3°NOMBRE
     
     # Preparar img_dist_path para FASE 2 (estrella verde)
     img_dist_path = temp_dist if os.path.exists(temp_dist) else None
@@ -280,7 +285,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Requiere_Verificacion': clasificacion['requiere_verificacion'],
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
             'Nota_Validacion': clasificacion['nota'],
-            'Version_OCR': '18.0'  # V18: Filtro 24h
+            'Version_OCR': '19.0'  # V19 FINAL: Orden correcto parámetros
         }
         
         eventos_nuevos.append(nuevo_evento)
@@ -302,7 +307,7 @@ def procesar():
     os.makedirs(CARPETA_LOGS, exist_ok=True)
     
     print("="*80)
-    print("🔬 SCRAPER OCR V18 - INICIO (Filtro 24h + ROI Temporal + Tupungatito)")
+    print("🔬 SCRAPER OCR V19 FINAL - INICIO (Orden correcto parámetros)")
     print("="*80)
     
     session = requests.Session()
