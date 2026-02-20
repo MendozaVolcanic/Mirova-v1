@@ -1,25 +1,27 @@
 """
-OCR_UTILS.PY V21 FIX CAMPO VRP - Tupungatito eventos ahora SÍ se procesan
-BASE: V20 TUPUNGATITO + FIX campo vrp_mw minúscula
+OCR_UTILS.PY V22 FIX requiere_verificacion - Campo faltante agregado
+BASE: V21 (campo vrp_mw) + FIX campos faltantes
 
-CAMBIO V21 (CRÍTICO - 1 CARÁCTER):
-- FIX: evento.get('vrp_mw', 0) en lugar de evento.get('VRP_MW', 0)
-- PROBLEMA: Campo se crea como 'vrp_mw' (línea 232) pero se buscaba 'VRP_MW'
-- RESULTADO: Siempre obtenía 0 → VRP_INVALIDO sin ejecutar FASES 1, 2, 3
-- SOLUCIÓN: Cambiar a minúscula para coincidir con creación de evento
-- IMPACTO: Tupungatito 0.27 MW ahora SÍ pasa por sistema 3 fases
+CAMBIO V22 (QUIRÚRGICO):
+- FIX: Agregar 'requiere_verificacion': False a TODOS los returns
+- FIX: Cambiar 'Nota' → 'nota' (minúscula) para consistencia con scraper
+- PROBLEMA: clasificacion dict no tenía 'requiere_verificacion' → KeyError en scraper
+- SOLUCIÓN: Agregar campo a todos los returns de clasificar_confianza()
+
+PRESERVA V21:
+- Campo vrp_mw minúscula (fix crítico)
 
 PRESERVA V20:
-- Orden parámetros correcto: analizar_puntos_distancia(PATH, LIST, NAME)
-- Carga img_dist antes de validar_con_estrella_verde()
+- Orden parámetros correcto
+- Carga img_dist antes de validar estrella
 
 PRESERVA V19:
-- Detección grupos píxeles rojos separados
+- Detección grupos píxeles
 
 PRESERVA V17:
 - ROI TEMPORAL: (x: 0.8424-0.8635, y: 0.1817-0.4933)
 - Sistema 3 fases: rojos → estrella → negros
-- 14 volcanes en LIMITES_Y_COORDENADAS (incluye Tupungatito)
+- 14 volcanes en LIMITES_Y_COORDENADAS
 - Filtro estrella verde: mask_grafico[100:, 250:]
 """
 
@@ -495,8 +497,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'guardar_imagenes': False,
             'tipo_registro': 'VRP_INVALIDO',
             'confianza': 'invalido',
+            'requiere_verificacion': False,  # =====FIX V22=====
             'Color_Punto': 'sin_punto',
-            'Nota': f'VRP inválido: {vrp_mw}'
+            'nota': f'VRP inválido: {vrp_mw}'  # minúscula
         }
     
     # ========================================
@@ -527,9 +530,10 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'guardar_imagenes': True,
                 'tipo_registro': 'ALERTA_TERMICA_OCR',
                 'confianza': 'alta',
+                'requiere_verificacion': False,  # =====FIX V22=====
                 'Color_Punto': 'sin_punto',
                 'Metodo_Deteccion': 'grupo_pixeles_v19',
-                'Nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
+                'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'  # minúscula
             }
         else:
             # FUERA del límite - FALSO POSITIVO
@@ -542,8 +546,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'guardar_imagenes': False,
                 'tipo_registro': 'FALSO_POSITIVO_OCR',
                 'confianza': 'baja',
+                'requiere_verificacion': False,  # =====FIX V22=====
                 'Color_Punto': 'sin_punto',
-                'Nota': f'Grupo fuera límite: Y={y_absoluto} < {y_limite_px}'
+                'nota': f'Grupo fuera límite: Y={y_absoluto} < {y_limite_px}'  # minúscula
             }
     
     # ========================================
@@ -581,9 +586,10 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'guardar_imagenes': tipo_estrella == 'ALERTA_TERMICA_OCR',
             'tipo_registro': tipo_estrella,
             'confianza': confianza_estrella,
+            'requiere_verificacion': False,  # =====FIX V22: Agregar campo faltante=====
             'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
             'Metodo_Deteccion': 'estrella_verde_v16',
-            'Nota': nota_estrella
+            'nota': nota_estrella  # =====FIX V22: minúscula para consistencia=====
         }
     
     # ========================================
@@ -597,8 +603,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'guardar_imagenes': False,
             'tipo_registro': 'FALSO_POSITIVO_OCR',
             'confianza': 'baja',
+            'requiere_verificacion': False,  # =====FIX V22=====
             'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
-            'Nota': f'ROI mayormente negro (ratio={ratio_negros:.2f})'
+            'nota': f'ROI mayormente negro (ratio={ratio_negros:.2f})'  # minúscula
         }
     
     # Sin señal clara - FALSO POSITIVO
@@ -607,8 +614,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         'guardar_imagenes': False,
         'tipo_registro': 'FALSO_POSITIVO_OCR',
         'confianza': 'baja',
+        'requiere_verificacion': False,  # =====FIX V22=====
         'Color_Punto': evento.get('Color_Punto', 'mixto'),
-        'Nota': 'Sin grupo ni estrella clara'
+        'nota': 'Sin grupo ni estrella clara'  # minúscula
     }
 
 
