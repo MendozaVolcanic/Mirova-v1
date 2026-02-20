@@ -1,13 +1,20 @@
 """
-OCR UTILS V19 - DETECCIÓN GRUPOS PÍXELES + TODAS FUNCIONALIDADES V17
+OCR_UTILS.PY V20 - FIX ORDEN PARÁMETROS analizar_puntos_distancia()
+BASE: V19 (Detección grupos píxeles) + FIX orden parámetros
 
-CAMBIOS V19:
-5. **NUEVO V19:** Detección grupos píxeles rojos separados (eventos superpuestos)
-6. **PRESERVA V17:** ROI temporal, Sistema 3 fases, 11 volcanes, Filtro estrella
-1. ROI TEMPORAL restaurado (análisis de píxeles en columna último día)
-2. Estrella verde con filtro de zona (V16)
-3. Tupungatito agregado
-4. Sistema 3 fases completo
+CAMBIO V20 (QUIRÚRGICO):
+- FIX: analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre)
+- Orden correcto: (PATH, LIST, NAME) - compatible con scraper V19
+
+PRESERVA V19:
+- Detección grupos píxeles rojos separados (eventos superpuestos)
+
+PRESERVA V17:
+- ROI TEMPORAL: (x: 0.8424-0.8635, y: 0.1817-0.4933)
+- Sistema 3 fases: rojos → estrella → negros
+- 14 volcanes en LIMITES_Y_COORDENADAS
+- Filtro estrella verde: mask_grafico[100:, 250:]
+- Tupungatito incluido
 """
 
 import cv2
@@ -234,7 +241,12 @@ def extraer_eventos_latest10nti(img_path):
         return []
 
 
-def analizar_puntos_distancia(eventos, img_dist_path, volcan_nombre):
+def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
+    # =====FIX V20: ORDEN CORRECTO DE PARÁMETROS=====
+    # Parámetro 1: img_dist_path (STRING - path a Dist.png)
+    # Parámetro 2: eventos (LIST - lista de eventos)
+    # Parámetro 3: volcan_nombre (STRING - nombre volcán)
+    # ================================================
     """
     V19: Detecta grupos de píxeles rojos y asocia a eventos individuales
     PRESERVA V17: ROI temporal (x: 0.8424-0.8635, y: 0.1817-0.4933)
