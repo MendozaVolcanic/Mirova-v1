@@ -1,15 +1,17 @@
 """
-OCR_UTILS.PY V20 TUPUNGATITO FIX - Estrella verde detecta eventos correctamente
-BASE: V20 (orden parámetros) + FIX Tupungatito estrella verde
+OCR_UTILS.PY V21 FIX CAMPO VRP - Tupungatito eventos ahora SÍ se procesan
+BASE: V20 TUPUNGATITO + FIX campo vrp_mw minúscula
 
-CAMBIO V20 TUPUNGATITO (QUIRÚRGICO):
-- FIX: Cargar img_dist con cv2.imread() antes de validar_con_estrella_verde()
-- PROBLEMA: Se pasaba 'evento' (dict) en lugar de imagen numpy array
-- SOLUCIÓN: Cargar imagen desde path antes de llamar función
-- RESULTADO: Tupungatito 0.27 MW ahora SE GUARDA correctamente
+CAMBIO V21 (CRÍTICO - 1 CARÁCTER):
+- FIX: evento.get('vrp_mw', 0) en lugar de evento.get('VRP_MW', 0)
+- PROBLEMA: Campo se crea como 'vrp_mw' (línea 232) pero se buscaba 'VRP_MW'
+- RESULTADO: Siempre obtenía 0 → VRP_INVALIDO sin ejecutar FASES 1, 2, 3
+- SOLUCIÓN: Cambiar a minúscula para coincidir con creación de evento
+- IMPACTO: Tupungatito 0.27 MW ahora SÍ pasa por sistema 3 fases
 
 PRESERVA V20:
 - Orden parámetros correcto: analizar_puntos_distancia(PATH, LIST, NAME)
+- Carga img_dist antes de validar_con_estrella_verde()
 
 PRESERVA V19:
 - Detección grupos píxeles rojos separados
@@ -479,7 +481,12 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     FASE 2: Estrella verde (V16 - PRESERVADO)
     FASE 3: Píxeles negros (V17 - PRESERVADO)
     """
-    vrp_mw = evento.get('VRP_MW', 0)
+    # =====FIX V21: Corregir nombre de campo vrp_mw (minúscula)=====
+    # PROBLEMA: evento tiene 'vrp_mw' pero buscábamos 'VRP_MW'
+    # RESULTADO: Siempre obtenía 0 → VRP_INVALIDO sin pasar por FASES
+    # SOLUCIÓN: Cambiar a 'vrp_mw' (minúscula, como se crea en línea 232)
+    # ==============================================================
+    vrp_mw = evento.get('vrp_mw', 0)  # ✅ CORRECTO: minúscula
     
     # Validar VRP
     if vrp_mw == 0 or np.isnan(vrp_mw) or vrp_mw is None:
