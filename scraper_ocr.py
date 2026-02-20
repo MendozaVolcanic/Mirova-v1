@@ -1,7 +1,7 @@
 """
-SCRAPER_OCR.PY V19 FINAL - ORDEN CORRECTO DE PARÁMETROS
-BASE: V17 (14-Feb funcionando) + Filtro 24h
-FIX CRÍTICO: analizar_puntos_distancia(PATH, LISTA, NOMBRE) - ORDEN CORRECTO
+SCRAPER_OCR.PY V20 FIX - KeyError 'nota' solucionado
+BASE: V19 FINAL + FIX KeyError 'nota'
+FIX: Usar .get() para campo 'nota' opcional en clasificacion dict
 """
 
 import requests
@@ -219,7 +219,10 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         print(f"      Guardar: {clasificacion['guardar']}")
         print(f"      Guardar imágenes: {clasificacion.get('guardar_imagenes', False)}")
         print(f"      Color punto: {evento.get('color_punto', 'sin_punto')}")
-        print(f"      Nota: {clasificacion['nota']}")
+        # =====FIX V20: Usar .get() para evitar KeyError si 'nota' no existe=====
+        if 'nota' in clasificacion:
+            print(f"      Nota: {clasificacion['nota']}")
+        # ========================================================================
         
         if not clasificacion['guardar']:
             print(f"   ❌ SKIP: guardar=False (VRP inválido)")
@@ -285,7 +288,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Requiere_Verificacion': clasificacion['requiere_verificacion'],
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
             'Nota_Validacion': clasificacion['nota'],
-            'Version_OCR': '19.0'  # V19 FINAL: Orden correcto parámetros
+            'Version_OCR': '20.0'  # V20 FIX: KeyError 'nota'
         }
         
         eventos_nuevos.append(nuevo_evento)
@@ -307,7 +310,7 @@ def procesar():
     os.makedirs(CARPETA_LOGS, exist_ok=True)
     
     print("="*80)
-    print("🔬 SCRAPER OCR V19 FINAL - INICIO (Orden correcto parámetros)")
+    print("🔬 SCRAPER OCR V20 FIX - INICIO (Fix KeyError 'nota')")
     print("="*80)
     
     session = requests.Session()
