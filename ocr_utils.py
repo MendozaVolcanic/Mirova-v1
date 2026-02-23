@@ -1,14 +1,33 @@
 """
-OCR_UTILS.PY V24 - Umbral área grupos reducido a 3 px²
-BASE: V23 (umbral 10 px²) + FIX umbral más agresivo
+OCR_UTILS.PY V24 - Umbral área grupos reducido a 3 px² + Tupungatito 7 km
+BASE: V23 (umbral 10 px²) + FIX umbral más agresivo + cambio límite Tupungatito
 
 CAMBIO V24 (QUIRÚRGICO):
-- FIX: Reducir umbral_area_minima de 10 → 3 px²
+- FIX: Reducir umbral_area_minima de 10 → 3 px² en detectar_grupos_pixeles_rojos()
 - PROBLEMA: Lascar grupo real = 8 px² → descartado con umbral 10
 - SOLUCIÓN: Umbral 3 px² captura grupos pequeños pero reales
 - JUSTIFICACIÓN: Análisis muestra grupo compacto de 8 px² (dispersión Y=3.7, X=1.1)
+- CAMBIO LÍMITE: Tupungatito 5 km → 7 km (línea 55)
 
-PRESERVA V23-V17: Todas las funcionalidades
+PRESERVA V22:
+- Campo requiere_verificacion en todos los returns
+- Campo nota minúscula
+
+PRESERVA V21:
+- Campo vrp_mw minúscula (fix crítico)
+
+PRESERVA V20:
+- Orden parámetros correcto
+- Carga img_dist antes de validar estrella
+
+PRESERVA V19:
+- Detección grupos píxeles
+
+PRESERVA V17:
+- ROI TEMPORAL: (x: 0.8424-0.8635, y: 0.1817-0.4933)
+- Sistema 3 fases: rojos → estrella → negros
+- 14 volcanes en LIMITES_Y_COORDENADAS
+- Filtro estrella verde: mask_grafico[100:, 250:]
 """
 
 import cv2
@@ -20,6 +39,9 @@ import re
 import os
 from PIL import Image
 
+# ========================================
+# COORDENADAS DE LÍMITES
+# ========================================
 LIMITES_Y_COORDENADAS = {
     'Lastarria': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
     'PlanchonPeteroa': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
@@ -34,24 +56,43 @@ LIMITES_Y_COORDENADAS = {
     'Chaiten': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
     'Puyehue-Cordon Caulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
     'PuyehueCordonCaulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
-    'Tupungatito': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 7.0}  # =====CAMBIO: 5→7 km=====
+    'Tupungatito': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 7.0}  # =====CAMBIO V24: 5→7 km=====
 }
 
+# ========================================
+# ROI TEMPORAL (RESTAURADO V17)
+# ========================================
 ROI_CONFIG = {
-    'x_start_pct': 0.8424,
-    'x_end_pct': 0.8635,
-    'y_start_pct': 0.1817,
-    'y_end_pct': 0.4933
+    'x_start_pct': 0.8424,  # 84.24% del ancho (último día)
+    'x_end_pct': 0.8635,    # 86.35%
+    'y_start_pct': 0.1817,  # 18.17% altura
+    'y_end_pct': 0.4933     # 49.33%
 }
+
+
+# ========================================
+# NUEVAS FUNCIONES V19: DETECCIÓN GRUPOS PÍXELES ROJOS
+# ========================================
 
 def detectar_grupos_pixeles_rojos(roi, umbral_area_minima=3):
     # =====NUEVO V24: Umbral reducido 10 → 3 px²=====
-    # PROBLEMA: Lascar grupo real 8 px² → descartado
-    # EVIDENCIA: Grupo compacto (dispersión Y=3.7, X=1.1)
+    # PROBLEMA: Lascar grupo real 8 px² → descartado umbral 10
+    # EVIDENCIA: Grupo compacto dispersión Y=3.7, X=1.1
     # SOLUCIÓN: Umbral 3 px² captura grupos pequeños reales
-    # ================================================
+    # =================================================
     """
-    V24: Detecta grupos píxeles rojos (umbral 3 px²)
+    V24: Detecta grupos separados de píxeles rojos en ROI
+    CAMBIO V24: umbral_area_minima = 3 px² (antes 10 en V23, 20 en V19)
+    
+    Útil para eventos superpuestos (ej: Lastarria 05:42 + 06:06, Tupungatito 04:48 + 05:12 + 06:30)
+    
+    Args:
+        roi: ROI de imagen (numpy array RGB)
+        umbral_area_minima: Área mínima en píxeles para considerar grupo válido (V23: 10 px²)
+    
+    Returns:
+        list: [{'centro_y': int, 'area': int, 'bbox': tuple}, ...]
+              Ordenados por Y (grupos arriba primero)
     """
     mask_rojos = (
         (roi[:, :, 0] > 150) &
@@ -81,7 +122,21 @@ def detectar_grupos_pixeles_rojos(roi, umbral_area_minima=3):
 
 
 def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
-    """V19: Sin cambios"""
+    """
+    V19: Asocia cada grupo de píxeles rojos a su evento correspondiente
+    
+    Estrategia:
+    - Si 1 grupo + 1 evento → Asociación directa
+    - Si múltiples grupos → Asociar por índice (grupo[i] → evento[i])
+    
+    Args:
+        eventos: Lista de eventos extraídos de Latest10NTI
+        grupos: Lista de grupos detectados en ROI
+        roi_y_start: Coordenada Y inicial del ROI en imagen completa
+    
+    Returns:
+        dict: {evento_index: grupo_info con y_absoluto}
+    """
     if not grupos:
         return {}
     
@@ -98,6 +153,13 @@ def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
             asociaciones[i] = grupo
     
     return asociaciones
+
+
+# JUSTIFICACIÓN:
+# - Máxima precisión temporal (sin mezcla de días)
+# - Reduce área de análisis en 99.4% (3,162 px² vs 510,000 px²)
+# - Ideal para monitoreo en tiempo real
+# - Evita falsos positivos de días antiguos
 
 
 def extraer_eventos_latest10nti(img_path):
@@ -128,6 +190,7 @@ def extraer_eventos_latest10nti(img_path):
             print(f"   ❌ NINGUNA configuración OCR funcionó")
             return []
         
+        # ===== Extracción fechas =====
         patron_fechas = r'(\d{2}-[A-Za-z]{3}-\d{4}\s+\d{2}:\d{2}:\d{2})'
         
         fechas = []
@@ -148,6 +211,7 @@ def extraer_eventos_latest10nti(img_path):
         if len(fechas) > 5:
             print(f"   ... (+{len(fechas)-5} más)")
         
+        # ===== Extracción VRP =====
         patron_vrp = r'VRP\s*=?\s*([\d.]+|NaN)\s*MW'
         
         vrps = []
@@ -161,6 +225,7 @@ def extraer_eventos_latest10nti(img_path):
         if len(vrps) > 5:
             print(f"   ... (+{len(vrps)-5} más)")
         
+        # ===== Emparejar fechas con VRP =====
         n_min = min(len(fechas), len(vrps))
         eventos = []
         
@@ -196,7 +261,19 @@ def extraer_eventos_latest10nti(img_path):
 
 
 def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
-    """V24: umbral 3 px²"""
+    """
+    V19: Detecta grupos de píxeles rojos y asocia a eventos individuales
+    PRESERVA V17: ROI temporal (x: 0.8424-0.8635, y: 0.1817-0.4933)
+    
+    MEJORAS V19:
+    - Detecta grupos separados de píxeles rojos
+    - Asocia cada grupo a su evento correspondiente
+    - Calcula datos POR EVENTO individual (y_absoluto, área)
+    
+    COMPATIBILIDAD V17:
+    - Mantiene análisis global (ratio_rojos, ratio_negros)
+    - Funciona igual para casos con 1 evento
+    """
     try:
         if not os.path.exists(img_dist_path):
             print(f"    ⚠️ Dist.png no encontrado: {img_dist_path}")
@@ -210,6 +287,9 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         img_rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
         height, width = img_rgb.shape[:2]
         
+        # ========================================
+        # ROI TEMPORAL (PRESERVADO V17)
+        # ========================================
         roi_x_start = int(width * ROI_CONFIG['x_start_pct'])
         roi_x_end = int(width * ROI_CONFIG['x_end_pct'])
         roi_y_start = int(height * ROI_CONFIG['y_start_pct'])
@@ -217,19 +297,27 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         
         roi = img_rgb[roi_y_start:roi_y_end, roi_x_start:roi_x_end]
         
-        print(f"\n🎯 V24 - ROI TEMPORAL + GRUPOS (umbral 3 px²)")
-        print(f"   📍 ROI: X={roi_x_start}-{roi_x_end}, Y={roi_y_start}-{roi_y_end}")
-        print(f"   📏 Tamaño: {roi.shape[1]}x{roi.shape[0]} = {roi.shape[0]*roi.shape[1]} px²")
+        print(f"\n🎯 V24 - Analizando píxeles con ROI TEMPORAL + GRUPOS (umbral 3 px²)")
+        print(f"   📍 ROI temporal: X={roi_x_start}-{roi_x_end}, Y={roi_y_start}-{roi_y_end}")
+        print(f"   📏 Tamaño ROI: {roi.shape[1]}x{roi.shape[0]} = {roi.shape[0]*roi.shape[1]} px²")
         
+        # ========================================
+        # NUEVO V19: Detectar grupos separados
+        # V23: umbral_area_minima = 10 (reducido de 20)
+        # ========================================
         grupos = detectar_grupos_pixeles_rojos(roi)
         
         print(f"   🔴 Grupos detectados: {len(grupos)}")
         for i, grupo in enumerate(grupos, 1):
             y_abs = roi_y_start + grupo['centro_y']
-            print(f"      Grupo {i}: Y_rel={grupo['centro_y']}, Y_abs={y_abs}, área={grupo['area']} px²")
+            print(f"      Grupo {i}: Y_relativo={grupo['centro_y']}, Y_absoluto={y_abs}, área={grupo['area']} px²")
         
+        # Asociar grupos a eventos
         asociaciones = asociar_grupos_a_eventos(eventos, grupos, roi_y_start)
         
+        # ========================================
+        # PRESERVADO V17: Análisis global de píxeles
+        # ========================================
         mask_rojos = (
             (roi[:, :, 0] > 150) &
             (roi[:, :, 1] < 100) &
@@ -258,7 +346,9 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         print(f"   🟢 Estrella ROI: {pixeles_verdes} px")
         print(f"   🔴 Rojos globales: {pixeles_rojos} px")
         print(f"   ⚫ Negros globales: {pixeles_negros} px")
+        print(f"   📊 Ratio R/N: {ratio_rojos:.2f}")
         
+        # Clasificación global (PRESERVADO V17)
         if ratio_rojos > 0.10:
             color_dominante = "rojo"
         elif ratio_negros > 0.70:
@@ -266,9 +356,13 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         else:
             color_dominante = "mixto"
         
-        print(f"   🎯 Clasificación: {color_dominante}")
+        print(f"   🎯 Clasificación ROI global: {color_dominante}")
         
+        # ========================================
+        # Agregar datos a eventos
+        # ========================================
         for i, evento in enumerate(eventos):
+            # Datos globales (COMPATIBILIDAD V17)
             evento['color_punto'] = color_dominante
             evento['pixeles_rojos'] = int(pixeles_rojos)
             evento['pixeles_negros'] = int(pixeles_negros)
@@ -277,58 +371,70 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
             evento['ratio_negros'] = float(ratio_negros)
             evento['metodo'] = 'roi_temporal_v24'
             
+            # Datos por grupo (NUEVO V19)
             if i in asociaciones:
                 evento['grupo_pixeles'] = asociaciones[i]
-                print(f"   ✅ Evento {i+1} → grupo Y={asociaciones[i]['centro_y']} ({asociaciones[i]['area']} px²)")
+                print(f"   ✅ Evento {i+1} asociado a grupo Y={asociaciones[i]['centro_y']} ({asociaciones[i]['area']} px²)")
             else:
                 evento['grupo_pixeles'] = None
                 if len(grupos) > 0:
-                    print(f"   ⚠️ Evento {i+1} sin grupo")
+                    print(f"   ⚠️ Evento {i+1} sin grupo asociado")
         
         return eventos
     
     except Exception as e:
-        print(f"   ❌ ERROR V24: {e}")
+        print(f"   ❌ ERROR en analizar_puntos_distancia V23: {e}")
         import traceback
         traceback.print_exc()
         return eventos
 
 
 def detectar_centro_estrella_verde(img_dist):
-    """V16: Sin cambios"""
+    """
+    V16: Detecta centro de estrella verde con FILTRO DE ZONA
+    FIX: Solo busca en gráfico (Y>100, X>250), NO en interfaz
+    """
     if img_dist is None or img_dist.size == 0:
         return None
     
     try:
         img_hsv = cv2.cvtColor(img_dist, cv2.COLOR_RGB2HSV)
+        
+        # Detectar verde
         mask_verde = cv2.inRange(img_hsv, (40, 80, 80), (80, 255, 255))
         
+        # ===== FIX V16: FILTRAR SOLO ZONA DEL GRÁFICO =====
         mask_grafico = np.zeros_like(mask_verde)
-        mask_grafico[100:, 250:] = mask_verde[100:, 250:]
+        mask_grafico[100:, 250:] = mask_verde[100:, 250:]  # Y>100, X>250
         
+        # Encontrar contornos en ZONA FILTRADA
         contornos, _ = cv2.findContours(mask_grafico, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         if len(contornos) == 0:
             return None
         
+        # Filtrar por área mínima
         contornos_validos = [c for c in contornos if cv2.contourArea(c) > 50]
         
         if len(contornos_validos) == 0:
             return None
         
+        # ===== PRIORIZAR ZONA TÍPICA DE ESTRELLA (Y=250-450) =====
         contornos_estrella = []
         for c in contornos_validos:
             M = cv2.moments(c)
             if M['m00'] > 0:
                 cy = int(M['m01'] / M['m00'])
-                if 250 <= cy <= 450:
+                if 250 <= cy <= 450:  # Zona típica de estrella
                     contornos_estrella.append(c)
         
+        # Usar zona estrella si existe, sino usar todos
         if contornos_estrella:
             contorno_max = max(contornos_estrella, key=cv2.contourArea)
         else:
             contorno_max = max(contornos_validos, key=cv2.contourArea)
         
+        # Calcular centro
         M = cv2.moments(contorno_max)
         if M['m00'] == 0:
             return None
@@ -338,14 +444,17 @@ def detectar_centro_estrella_verde(img_dist):
         return cy
     
     except Exception as e:
-        print(f"      Error estrella: {e}")
+        print(f"      Error detectando estrella verde: {e}")
         return None
 
 
 def validar_con_estrella_verde(img_dist, volcan_nombre):
-    """V16: Sin cambios"""
+    """
+    V16: Valida si estrella verde está dentro del límite
+    Compatible con V17 (puede usarse como FASE 2)
+    """
     if volcan_nombre not in LIMITES_Y_COORDENADAS:
-        return None, None, f"Volcán '{volcan_nombre}' sin coordenadas"
+        return None, None, f"Volcán '{volcan_nombre}' sin coordenadas calibradas"
     
     coords = LIMITES_Y_COORDENADAS[volcan_nombre]
     
@@ -357,6 +466,7 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
     y_limite = coords['Y_LIMITE_PX']
     y_eje_x = coords['Y_EJE_X_PX']
     
+    # REGLA: Si Y estrella >= Y límite → DENTRO
     if y_estrella >= y_limite:
         if y_estrella >= y_eje_x:
             dist_km = 0.0
@@ -364,17 +474,25 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
             proporcion = (y_eje_x - y_estrella) / (y_eje_x - y_limite)
             dist_km = proporcion * coords['LIMITE_KM']
         
-        nota = f"Estrella Y={y_estrella} (dentro límite Y={y_limite}, dist≈{dist_km:.2f} km)"
+        nota = f"Estrella en Y={y_estrella} (dentro límite Y={y_limite}, dist≈{dist_km:.2f} km)"
         return 'alta', 'ALERTA_TERMICA_OCR', nota
     else:
-        nota = f"Estrella Y={y_estrella} (fuera límite Y={y_limite})"
+        nota = f"Estrella en Y={y_estrella} (fuera límite Y={y_limite})"
         return 'baja', 'FALSO_POSITIVO_OCR', nota
 
 
 def clasificar_confianza(evento, img_dist_path, volcan_nombre):
-    """V24: umbral 3 px²"""
+    """
+    V23: Sistema 3 fases con umbral grupos reducido a 10 px²
+    
+    SISTEMA 3 FASES:
+    FASE 1: Píxeles rojos en ROI temporal → Validación por GRUPO individual (umbral 10 px²)
+    FASE 2: Estrella verde (V16 - PRESERVADO)
+    FASE 3: Píxeles negros (V17 - PRESERVADO)
+    """
     vrp_mw = evento.get('vrp_mw', 0)
     
+    # Validar VRP
     if vrp_mw == 0 or np.isnan(vrp_mw) or vrp_mw is None:
         return {
             'guardar': False,
@@ -386,6 +504,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'nota': f'VRP inválido: {vrp_mw}'
         }
     
+    # ========================================
+    # FASE 1 V23: Validar con grupo individual (umbral 10 px²)
+    # ========================================
     grupo_info = evento.get('grupo_pixeles')
     
     if grupo_info:
@@ -398,11 +519,13 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         limite_km = limites.get('LIMITE_KM', 5.0)
         
         if y_absoluto >= y_limite_px:
+            # DENTRO del límite - VRP REAL
             distancia_aprox = ((y_absoluto - y_limite_px) / (y_eje_x - y_limite_px)) * limite_km
             
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V24 ({area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
-            print(f"      ✅ ALERTA_TERMICA_OCR")
+            print(f"   🎯 FASE 1 V24 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
+            print(f"      ✅ ALERTA_TERMICA_OCR: Grupo píxeles en Y={y_absoluto}")
+            print(f"         Área={area_grupo} px², dist≈{distancia_aprox:.2f} km")
             
             return {
                 'guardar': True,
@@ -412,11 +535,13 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
                 'Metodo_Deteccion': 'grupo_pixeles_v24',
-                'nota': f'Grupo píxeles Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
+                'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
             }
         else:
+            # FUERA del límite - FALSO POSITIVO
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V24: Y={y_absoluto} < {y_limite_px} ❌")
+            print(f"   🎯 FASE 1 V24 (grupo {area_grupo} px²): Y={y_absoluto} < {y_limite_px} ❌")
+            print(f"      ❌ FALSO_POSITIVO: Grupo fuera límite")
             
             return {
                 'guardar': False,
@@ -428,8 +553,11 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'nota': f'Grupo fuera límite: Y={y_absoluto} < {y_limite_px}'
             }
     
+    # ========================================
+    # FASE 2 (PRESERVADA V16): Estrella verde
+    # ========================================
     print(f"   ═════════════════════════════════════════════════════════")
-    print(f"   🎯 FASE 1: Sin grupo → FASE 2 (estrella)")
+    print(f"   🎯 FASE 1: Sin grupo individual → Continuando FASE 2 (estrella)")
     
     if img_dist_path and os.path.exists(img_dist_path):
         import cv2
@@ -446,7 +574,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     else:
         confianza_estrella = 'desconocido'
         tipo_estrella = 'DESCONOCIDO'
-        nota_estrella = 'Dist.png no disponible'
+        nota_estrella = 'Imagen Dist.png no disponible'
     
     if confianza_estrella != 'desconocido':
         return {
@@ -460,6 +588,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'nota': nota_estrella
         }
     
+    # ========================================
+    # FASE 3 (PRESERVADA V17): Píxeles negros
+    # ========================================
     ratio_negros = evento.get('ratio_negros', 0)
     
     if ratio_negros > 0.70:
@@ -470,9 +601,10 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'confianza': 'baja',
             'requiere_verificacion': False,
             'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
-            'nota': f'ROI negro (ratio={ratio_negros:.2f})'
+            'nota': f'ROI mayormente negro (ratio={ratio_negros:.2f})'
         }
     
+    # Sin señal clara - FALSO POSITIVO
     return {
         'guardar': False,
         'guardar_imagenes': False,
@@ -480,14 +612,15 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         'confianza': 'baja',
         'requiere_verificacion': False,
         'Color_Punto': evento.get('Color_Punto', 'mixto'),
-        'nota': 'Sin grupo ni estrella'
+        'nota': 'Sin grupo ni estrella clara'
     }
 
 
 def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df_ocr):
-    """Verifica duplicados"""
+    """Verifica que evento NO exista en CSVs"""
     ts = evento['timestamp']
     
+    # Verificar en consolidado (latest.php)
     if not df_consolidado.empty:
         existe_consolidado = df_consolidado[
             (df_consolidado['timestamp'] == ts) &
@@ -496,9 +629,10 @@ def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df
         ]
         
         if not existe_consolidado.empty:
-            print(f"      ❌ DUPLICADO en latest.php")
+            print(f"      ❌ DUPLICADO: Ya existe en latest.php")
             return False
     
+    # Verificar en OCR
     if not df_ocr.empty:
         existe_ocr = df_ocr[
             (df_ocr['timestamp'] == ts) &
@@ -507,14 +641,55 @@ def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df
         ]
         
         if not existe_ocr.empty:
-            print(f"      ❌ DUPLICADO en OCR")
+            print(f"      ❌ DUPLICADO: Ya existe en OCR")
             return False
     
-    print(f"      ✅ NUEVO")
+    # Es nuevo
+    print(f"      ✅ RESULTADO: ES NUEVO (no es duplicado)")
     return True
 
 
+# ========================================
+# TEST
+# ========================================
 if __name__ == "__main__":
     print("="*70)
-    print("OCR UTILS V24 - Umbral 3 px²")
+    print("TEST: OCR UTILS V24")
+    print("  - Umbral grupos: 3 px² (reducido de 10 en V23)")
+    print("  - Tupungatito: 7 km (cambiado de 5)")
+    print("  - ROI temporal preservado")
+    print("  - Sistema 3 fases preservado")
+    print("="*70)
+    
+    volcanes = list(LIMITES_Y_COORDENADAS.keys())
+    print(f"\n✅ Volcanes configurados: {len(volcanes)}")
+    for v in volcanes:
+        print(f"   - {v}: {LIMITES_Y_COORDENADAS[v]['LIMITE_KM']} km")
+    
+    print(f"\n✅ ROI temporal configurado:")
+    print(f"   X: {ROI_CONFIG['x_start_pct']:.4f} - {ROI_CONFIG['x_end_pct']:.4f}")
+    print(f"   Y: {ROI_CONFIG['y_start_pct']:.4f} - {ROI_CONFIG['y_end_pct']:.4f}")
+    
+    # Calcular coordenadas absolutas
+    width, height = 850, 600
+    roi_x1 = int(width * ROI_CONFIG['x_start_pct'])
+    roi_x2 = int(width * ROI_CONFIG['x_end_pct'])
+    roi_y1 = int(height * ROI_CONFIG['y_start_pct'])
+    roi_y2 = int(height * ROI_CONFIG['y_end_pct'])
+    
+    area_roi = (roi_x2 - roi_x1) * (roi_y2 - roi_y1)
+    area_total = width * height
+    
+    print(f"\n✅ Coordenadas absolutas (850x600):")
+    print(f"   X: {roi_x1} - {roi_x2} ({roi_x2 - roi_x1} px)")
+    print(f"   Y: {roi_y1} - {roi_y2} ({roi_y2 - roi_y1} px)")
+    print(f"   Área: {area_roi:,} px² ({(area_roi/area_total)*100:.2f}% del total)")
+    
+    print(f"\n✅ Umbral detección grupos: 3 px² (V24)")
+    print(f"   V23: 10 px²")
+    print(f"   V19: 20 px²")
+    print(f"   Mejora: Captura grupos 3-8 px²")
+    
+    print("\n" + "="*70)
+    print("✅ OCR UTILS V24 LISTO")
     print("="*70)
