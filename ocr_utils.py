@@ -1,13 +1,16 @@
 """
-OCR_UTILS.PY V24 - Umbral área grupos reducido a 3 px² + Tupungatito 7 km
-BASE: V23 (umbral 10 px²) + FIX umbral más agresivo + cambio límite Tupungatito
+OCR_UTILS.PY V25 - Fix asociación grupos a eventos VRP válidos
+BASE: V24 (umbral 3 px², Tupungatito 7 km) + FIX asociación eventos
 
-CAMBIO V24 (QUIRÚRGICO):
-- FIX: Reducir umbral_area_minima de 10 → 3 px² en detectar_grupos_pixeles_rojos()
-- PROBLEMA: Lascar grupo real = 8 px² → descartado con umbral 10
-- SOLUCIÓN: Umbral 3 px² captura grupos pequeños pero reales
-- JUSTIFICACIÓN: Análisis muestra grupo compacto de 8 px² (dispersión Y=3.7, X=1.1)
-- CAMBIO LÍMITE: Tupungatito 5 km → 7 km (línea 55)
+CAMBIO V25 (QUIRÚRGICO):
+- FIX: asociar_grupos_a_eventos() ahora filtra eventos VRP > 0 antes de asociar
+- PROBLEMA: Lascar 1.54 MW sin grupo (asignado a evento 0.0 MW inválido)
+- SOLUCIÓN: Filtrar eventos VRP válidos, asociar grupos solo a estos
+- EVIDENCIA: Log muestra evento[0]=0.0 MW con grupo, evento[1]=1.54 MW sin grupo
+
+PRESERVA V24:
+- Umbral 3 px²
+- Tupungatito 7 km
 
 PRESERVA V22:
 - Campo requiere_verificacion en todos los returns
@@ -122,12 +125,20 @@ def detectar_grupos_pixeles_rojos(roi, umbral_area_minima=3):
 
 
 def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
+    # =====FIX V25: Filtrar eventos VRP válidos antes de asociar=====
+    # PROBLEMA: Grupo asignado a evento[0] aunque sea VRP=0.0 (inválido)
+    # SOLUCIÓN: Asociar solo a eventos con VRP > 0
+    # EVIDENCIA: Lascar 1.54 MW sin grupo (asignado a 0.0 MW)
+    # ==============================================================
     """
-    V19: Asocia cada grupo de píxeles rojos a su evento correspondiente
+    V25: Asocia grupos SOLO a eventos con VRP válido (> 0)
+    
+    CAMBIO V25: Filtrar eventos VRP > 0 antes de asociar
     
     Estrategia:
-    - Si 1 grupo + 1 evento → Asociación directa
-    - Si múltiples grupos → Asociar por índice (grupo[i] → evento[i])
+    - Filtrar eventos con VRP > 0 y != NaN
+    - Si 1 grupo + 1 evento válido → Asociación directa
+    - Si múltiples grupos → Asociar por índice solo entre válidos
     
     Args:
         eventos: Lista de eventos extraídos de Latest10NTI
@@ -135,22 +146,39 @@ def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
         roi_y_start: Coordenada Y inicial del ROI en imagen completa
     
     Returns:
-        dict: {evento_index: grupo_info con y_absoluto}
+        dict: {evento_index_original: grupo_info con y_absoluto}
     """
     if not grupos:
         return {}
     
-    if len(grupos) == 1:
+    # =====NUEVO V25: Filtrar solo eventos VRP válidos=====
+    eventos_validos = []
+    indices_originales = []
+    
+    for i, evento in enumerate(eventos):
+        vrp = evento.get('vrp_mw', 0)
+        if vrp > 0 and not np.isnan(vrp):
+            eventos_validos.append(evento)
+            indices_originales.append(i)
+    
+    if not eventos_validos:
+        return {}
+    # ======================================================
+    
+    if len(grupos) == 1 and len(eventos_validos) == 1:
+        # 1 grupo + 1 evento válido → Asociación directa
         grupo = grupos[0].copy()
         grupo['y_absoluto'] = roi_y_start + grupo['centro_y']
-        return {0: grupo}
+        return {indices_originales[0]: grupo}
     
+    # Múltiples grupos o eventos → Asociar por índice entre válidos
     asociaciones = {}
-    for i, evento in enumerate(eventos):
-        if i < len(grupos):
-            grupo = grupos[i].copy()
+    for idx_valido, evento in enumerate(eventos_validos):
+        if idx_valido < len(grupos):
+            grupo = grupos[idx_valido].copy()
             grupo['y_absoluto'] = roi_y_start + grupo['centro_y']
-            asociaciones[i] = grupo
+            # Asociar al índice ORIGINAL del evento
+            asociaciones[indices_originales[idx_valido]] = grupo
     
     return asociaciones
 
@@ -297,7 +325,7 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         
         roi = img_rgb[roi_y_start:roi_y_end, roi_x_start:roi_x_end]
         
-        print(f"\n🎯 V24 - Analizando píxeles con ROI TEMPORAL + GRUPOS (umbral 3 px²)")
+        print(f"\n🎯 V25 - Analizando píxeles con ROI TEMPORAL + GRUPOS (umbral 3 px²)")
         print(f"   📍 ROI temporal: X={roi_x_start}-{roi_x_end}, Y={roi_y_start}-{roi_y_end}")
         print(f"   📏 Tamaño ROI: {roi.shape[1]}x{roi.shape[0]} = {roi.shape[0]*roi.shape[1]} px²")
         
@@ -369,7 +397,7 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
             evento['pixeles_verdes'] = int(pixeles_verdes)
             evento['ratio_rojos'] = float(ratio_rojos)
             evento['ratio_negros'] = float(ratio_negros)
-            evento['metodo'] = 'roi_temporal_v24'
+            evento['metodo'] = 'roi_temporal_v25'
             
             # Datos por grupo (NUEVO V19)
             if i in asociaciones:
@@ -523,7 +551,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             distancia_aprox = ((y_absoluto - y_limite_px) / (y_eje_x - y_limite_px)) * limite_km
             
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V24 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
+            print(f"   🎯 FASE 1 V25 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
             print(f"      ✅ ALERTA_TERMICA_OCR: Grupo píxeles en Y={y_absoluto}")
             print(f"         Área={area_grupo} px², dist≈{distancia_aprox:.2f} km")
             
@@ -534,13 +562,13 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'confianza': 'alta',
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
-                'Metodo_Deteccion': 'grupo_pixeles_v24',
+                'Metodo_Deteccion': 'grupo_pixeles_v25',
                 'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
             }
         else:
             # FUERA del límite - FALSO POSITIVO
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V24 (grupo {area_grupo} px²): Y={y_absoluto} < {y_limite_px} ❌")
+            print(f"   🎯 FASE 1 V25 (grupo {area_grupo} px²): Y={y_absoluto} < {y_limite_px} ❌")
             print(f"      ❌ FALSO_POSITIVO: Grupo fuera límite")
             
             return {
@@ -654,9 +682,10 @@ def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df
 # ========================================
 if __name__ == "__main__":
     print("="*70)
-    print("TEST: OCR UTILS V24")
-    print("  - Umbral grupos: 3 px² (reducido de 10 en V23)")
-    print("  - Tupungatito: 7 km (cambiado de 5)")
+    print("TEST: OCR UTILS V25")
+    print("  - Fix asociación grupos (solo VRP válidos)")
+    print("  - Umbral grupos: 3 px²")
+    print("  - Tupungatito: 7 km")
     print("  - ROI temporal preservado")
     print("  - Sistema 3 fases preservado")
     print("="*70)
@@ -685,11 +714,11 @@ if __name__ == "__main__":
     print(f"   Y: {roi_y1} - {roi_y2} ({roi_y2 - roi_y1} px)")
     print(f"   Área: {area_roi:,} px² ({(area_roi/area_total)*100:.2f}% del total)")
     
-    print(f"\n✅ Umbral detección grupos: 3 px² (V24)")
-    print(f"   V23: 10 px²")
-    print(f"   V19: 20 px²")
-    print(f"   Mejora: Captura grupos 3-8 px²")
+    print(f"\n✅ CAMBIOS V25:")
+    print(f"   - Asociación grupos: Solo eventos VRP > 0")
+    print(f"   - Umbral grupos: 3 px²")
+    print(f"   - Tupungatito: 7 km")
     
     print("\n" + "="*70)
-    print("✅ OCR UTILS V24 LISTO")
+    print("✅ OCR UTILS V25 LISTO")
     print("="*70)
