@@ -23,7 +23,7 @@ VOLCANES_CONFIG = {
     "358041": {"nombre": "Chaiten", "id_mirova": "Chaiten", "limite_km": 5.0},
     "357040": {"nombre": "PlanchonPeteroa", "id_mirova": "PlanchonPeteroa", "limite_km": 3.0},
     # ===== NUEVO: TUPUNGATITO =====
-    "357010": {"nombre": "Tupungatito", "id_mirova": "Tupungatito", "limite_km": 5.0}
+    "357010": {"nombre": "Tupungatito", "id_mirova": "Tupungatito", "limite_km": 7.0}
 }
 
 CARPETA_PRINCIPAL = "monitoreo_satelital"
@@ -223,3 +223,4 @@ def procesar():
 
 if __name__ == "__main__":
     procesar()
+
