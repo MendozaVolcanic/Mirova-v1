@@ -1,12 +1,16 @@
 """
-OCR_UTILS.PY V22 FIX requiere_verificacion - Campo faltante agregado
-BASE: V21 (campo vrp_mw) + FIX campos faltantes
+OCR_UTILS.PY V23 - Umbral área grupos reducido a 10 px²
+BASE: V22 (requiere_verificacion) + FIX umbral área mínima
 
-CAMBIO V22 (QUIRÚRGICO):
-- FIX: Agregar 'requiere_verificacion': False a TODOS los returns
-- FIX: Cambiar 'Nota' → 'nota' (minúscula) para consistencia con scraper
-- PROBLEMA: clasificacion dict no tenía 'requiere_verificacion' → KeyError en scraper
-- SOLUCIÓN: Agregar campo a todos los returns de clasificar_confianza()
+CAMBIO V23 (QUIRÚRGICO):
+- FIX: Reducir umbral_area_minima de 20 → 10 px² en detectar_grupos_pixeles_rojos()
+- PROBLEMA: Lascar 1.54 MW tenía grupo 14 px² → descartado con umbral 20
+- SOLUCIÓN: Reducir a 10 px² para capturar grupos reales pequeños
+- JUSTIFICACIÓN: Eventos VRP válidos pueden tener grupos pequeños (10-15 px²)
+
+PRESERVA V22:
+- Campo requiere_verificacion en todos los returns
+- Campo nota minúscula
 
 PRESERVA V21:
 - Campo vrp_mw minúscula (fix crítico)
@@ -51,7 +55,6 @@ LIMITES_Y_COORDENADAS = {
     'Chaiten': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
     'Puyehue-Cordon Caulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
     'PuyehueCordonCaulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
-    # ===== NUEVO: TUPUNGATITO =====
     'Tupungatito': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0}
 }
 
@@ -70,14 +73,21 @@ ROI_CONFIG = {
 # NUEVAS FUNCIONES V19: DETECCIÓN GRUPOS PÍXELES ROJOS
 # ========================================
 
-def detectar_grupos_pixeles_rojos(roi, umbral_area_minima=20):
+def detectar_grupos_pixeles_rojos(roi, umbral_area_minima=10):
+    # =====NUEVO V23: Umbral reducido 20 → 10 px²=====
+    # PROBLEMA: Lascar 1.54 MW grupo 14 px² → descartado
+    # SOLUCIÓN: Reducir umbral para capturar grupos pequeños
+    # JUSTIFICACIÓN: Eventos VRP válidos pueden ser 10-15 px²
+    # =================================================
     """
-    V19: Detecta grupos separados de píxeles rojos en ROI
+    V23: Detecta grupos separados de píxeles rojos en ROI
+    CAMBIO V23: umbral_area_minima = 10 px² (antes 20)
+    
     Útil para eventos superpuestos (ej: Lastarria 05:42 + 06:06, Tupungatito 04:48 + 05:12 + 06:30)
     
     Args:
         roi: ROI de imagen (numpy array RGB)
-        umbral_area_minima: Área mínima en píxeles para considerar grupo válido
+        umbral_area_minima: Área mínima en píxeles para considerar grupo válido (V23: 10 px²)
     
     Returns:
         list: [{'centro_y': int, 'area': int, 'bbox': tuple}, ...]
@@ -250,11 +260,6 @@ def extraer_eventos_latest10nti(img_path):
 
 
 def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
-    # =====FIX V20: ORDEN CORRECTO DE PARÁMETROS=====
-    # Parámetro 1: img_dist_path (STRING - path a Dist.png)
-    # Parámetro 2: eventos (LIST - lista de eventos)
-    # Parámetro 3: volcan_nombre (STRING - nombre volcán)
-    # ================================================
     """
     V19: Detecta grupos de píxeles rojos y asocia a eventos individuales
     PRESERVA V17: ROI temporal (x: 0.8424-0.8635, y: 0.1817-0.4933)
@@ -291,12 +296,13 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         
         roi = img_rgb[roi_y_start:roi_y_end, roi_x_start:roi_x_end]
         
-        print(f"\n🎯 V19 - Analizando píxeles con ROI TEMPORAL + GRUPOS")
+        print(f"\n🎯 V23 - Analizando píxeles con ROI TEMPORAL + GRUPOS (umbral 10 px²)")
         print(f"   📍 ROI temporal: X={roi_x_start}-{roi_x_end}, Y={roi_y_start}-{roi_y_end}")
         print(f"   📏 Tamaño ROI: {roi.shape[1]}x{roi.shape[0]} = {roi.shape[0]*roi.shape[1]} px²")
         
         # ========================================
         # NUEVO V19: Detectar grupos separados
+        # V23: umbral_area_minima = 10 (reducido de 20)
         # ========================================
         grupos = detectar_grupos_pixeles_rojos(roi)
         
@@ -362,7 +368,7 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
             evento['pixeles_verdes'] = int(pixeles_verdes)
             evento['ratio_rojos'] = float(ratio_rojos)
             evento['ratio_negros'] = float(ratio_negros)
-            evento['metodo'] = 'roi_temporal_v19'
+            evento['metodo'] = 'roi_temporal_v23'
             
             # Datos por grupo (NUEVO V19)
             if i in asociaciones:
@@ -376,7 +382,7 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         return eventos
     
     except Exception as e:
-        print(f"   ❌ ERROR en analizar_puntos_distancia V19: {e}")
+        print(f"   ❌ ERROR en analizar_puntos_distancia V23: {e}")
         import traceback
         traceback.print_exc()
         return eventos
@@ -476,19 +482,14 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
 
 def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     """
-    V19: Valida GRUPOS de píxeles individuales antes de validar con estrella
+    V23: Sistema 3 fases con umbral grupos reducido a 10 px²
     
-    SISTEMA 3 FASES (mejorado V19):
-    FASE 1: Píxeles rojos en ROI temporal → NUEVO: Validación por GRUPO individual
+    SISTEMA 3 FASES:
+    FASE 1: Píxeles rojos en ROI temporal → Validación por GRUPO individual (umbral 10 px²)
     FASE 2: Estrella verde (V16 - PRESERVADO)
     FASE 3: Píxeles negros (V17 - PRESERVADO)
     """
-    # =====FIX V21: Corregir nombre de campo vrp_mw (minúscula)=====
-    # PROBLEMA: evento tiene 'vrp_mw' pero buscábamos 'VRP_MW'
-    # RESULTADO: Siempre obtenía 0 → VRP_INVALIDO sin pasar por FASES
-    # SOLUCIÓN: Cambiar a 'vrp_mw' (minúscula, como se crea en línea 232)
-    # ==============================================================
-    vrp_mw = evento.get('vrp_mw', 0)  # ✅ CORRECTO: minúscula
+    vrp_mw = evento.get('vrp_mw', 0)
     
     # Validar VRP
     if vrp_mw == 0 or np.isnan(vrp_mw) or vrp_mw is None:
@@ -497,13 +498,13 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'guardar_imagenes': False,
             'tipo_registro': 'VRP_INVALIDO',
             'confianza': 'invalido',
-            'requiere_verificacion': False,  # =====FIX V22=====
+            'requiere_verificacion': False,
             'Color_Punto': 'sin_punto',
-            'nota': f'VRP inválido: {vrp_mw}'  # minúscula
+            'nota': f'VRP inválido: {vrp_mw}'
         }
     
     # ========================================
-    # FASE 1 V19 (MEJORADA): Validar con grupo individual
+    # FASE 1 V23: Validar con grupo individual (umbral 10 px²)
     # ========================================
     grupo_info = evento.get('grupo_pixeles')
     
@@ -521,7 +522,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             distancia_aprox = ((y_absoluto - y_limite_px) / (y_eje_x - y_limite_px)) * limite_km
             
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V19 (grupo individual): Y={y_absoluto} >= {y_limite_px} ✅")
+            print(f"   🎯 FASE 1 V23 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
             print(f"      ✅ ALERTA_TERMICA_OCR: Grupo píxeles en Y={y_absoluto}")
             print(f"         Área={area_grupo} px², dist≈{distancia_aprox:.2f} km")
             
@@ -530,15 +531,15 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'guardar_imagenes': True,
                 'tipo_registro': 'ALERTA_TERMICA_OCR',
                 'confianza': 'alta',
-                'requiere_verificacion': False,  # =====FIX V22=====
+                'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
-                'Metodo_Deteccion': 'grupo_pixeles_v19',
-                'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'  # minúscula
+                'Metodo_Deteccion': 'grupo_pixeles_v23',
+                'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
             }
         else:
             # FUERA del límite - FALSO POSITIVO
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V19 (grupo individual): Y={y_absoluto} < {y_limite_px} ❌")
+            print(f"   🎯 FASE 1 V23 (grupo {area_grupo} px²): Y={y_absoluto} < {y_limite_px} ❌")
             print(f"      ❌ FALSO_POSITIVO: Grupo fuera límite")
             
             return {
@@ -546,9 +547,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'guardar_imagenes': False,
                 'tipo_registro': 'FALSO_POSITIVO_OCR',
                 'confianza': 'baja',
-                'requiere_verificacion': False,  # =====FIX V22=====
+                'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
-                'nota': f'Grupo fuera límite: Y={y_absoluto} < {y_limite_px}'  # minúscula
+                'nota': f'Grupo fuera límite: Y={y_absoluto} < {y_limite_px}'
             }
     
     # ========================================
@@ -557,18 +558,13 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     print(f"   ═════════════════════════════════════════════════════════")
     print(f"   🎯 FASE 1: Sin grupo individual → Continuando FASE 2 (estrella)")
     
-    # =====FIX V20 TUPUNGATITO: Cargar imagen antes de validar estrella=====
-    # PROBLEMA ANTERIOR: Se pasaba 'evento' (dict) como primer parámetro
-    # validar_con_estrella_verde() espera imagen numpy array, no dict
-    # SOLUCIÓN: Cargar img_dist_path con cv2.imread() antes de llamar
-    # ======================================================================
     if img_dist_path and os.path.exists(img_dist_path):
         import cv2
         img_dist = cv2.imread(img_dist_path)
         
         if img_dist is not None:
             confianza_estrella, tipo_estrella, nota_estrella = validar_con_estrella_verde(
-                img_dist, volcan_nombre  # ✅ 2 parámetros correctos: imagen, nombre
+                img_dist, volcan_nombre
             )
         else:
             confianza_estrella = 'desconocido'
@@ -578,7 +574,6 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         confianza_estrella = 'desconocido'
         tipo_estrella = 'DESCONOCIDO'
         nota_estrella = 'Imagen Dist.png no disponible'
-    # ======================================================================
     
     if confianza_estrella != 'desconocido':
         return {
@@ -586,10 +581,10 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'guardar_imagenes': tipo_estrella == 'ALERTA_TERMICA_OCR',
             'tipo_registro': tipo_estrella,
             'confianza': confianza_estrella,
-            'requiere_verificacion': False,  # =====FIX V22: Agregar campo faltante=====
+            'requiere_verificacion': False,
             'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
             'Metodo_Deteccion': 'estrella_verde_v16',
-            'nota': nota_estrella  # =====FIX V22: minúscula para consistencia=====
+            'nota': nota_estrella
         }
     
     # ========================================
@@ -603,9 +598,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'guardar_imagenes': False,
             'tipo_registro': 'FALSO_POSITIVO_OCR',
             'confianza': 'baja',
-            'requiere_verificacion': False,  # =====FIX V22=====
+            'requiere_verificacion': False,
             'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
-            'nota': f'ROI mayormente negro (ratio={ratio_negros:.2f})'  # minúscula
+            'nota': f'ROI mayormente negro (ratio={ratio_negros:.2f})'
         }
     
     # Sin señal clara - FALSO POSITIVO
@@ -614,9 +609,9 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         'guardar_imagenes': False,
         'tipo_registro': 'FALSO_POSITIVO_OCR',
         'confianza': 'baja',
-        'requiere_verificacion': False,  # =====FIX V22=====
+        'requiere_verificacion': False,
         'Color_Punto': evento.get('Color_Punto', 'mixto'),
-        'nota': 'Sin grupo ni estrella clara'  # minúscula
+        'nota': 'Sin grupo ni estrella clara'
     }
 
 
@@ -658,10 +653,10 @@ def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df
 # ========================================
 if __name__ == "__main__":
     print("="*70)
-    print("TEST: OCR UTILS V17")
-    print("  - ROI temporal restaurado")
-    print("  - Estrella verde V16")
-    print("  - Tupungatito agregado")
+    print("TEST: OCR UTILS V23")
+    print("  - Umbral grupos: 10 px² (reducido de 20)")
+    print("  - ROI temporal preservado")
+    print("  - Sistema 3 fases preservado")
     print("="*70)
     
     volcanes = list(LIMITES_Y_COORDENADAS.keys())
@@ -687,8 +682,11 @@ if __name__ == "__main__":
     print(f"   X: {roi_x1} - {roi_x2} ({roi_x2 - roi_x1} px)")
     print(f"   Y: {roi_y1} - {roi_y2} ({roi_y2 - roi_y1} px)")
     print(f"   Área: {area_roi:,} px² ({(area_roi/area_total)*100:.2f}% del total)")
-    print(f"   Reducción: {100 - (area_roi/area_total)*100:.2f}%")
+    
+    print(f"\n✅ Umbral detección grupos: 10 px² (V23)")
+    print(f"   Antes V22: 20 px²")
+    print(f"   Mejora: Captura grupos pequeños (10-15 px²)")
     
     print("\n" + "="*70)
-    print("✅ OCR UTILS V17 LISTO")
+    print("✅ OCR UTILS V23 LISTO")
     print("="*70)
