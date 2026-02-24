@@ -1,14 +1,23 @@
 """
-OCR_UTILS.PY V25 - Fix asociación grupos a eventos VRP válidos
-BASE: V24 (umbral 3 px², Tupungatito 7 km) + FIX asociación eventos
+OCR_UTILS.PY V27 - Contexto latest.php para asociación precisa
+BASE: V26 (orden temporal) + NUEVO contexto latest.php
 
-CAMBIO V25 (QUIRÚRGICO):
-- FIX: asociar_grupos_a_eventos() ahora filtra eventos VRP > 0 antes de asociar
-- PROBLEMA: Lascar 1.54 MW sin grupo (asignado a evento 0.0 MW inválido)
-- SOLUCIÓN: Filtrar eventos VRP válidos, asociar grupos solo a estos
-- EVIDENCIA: Log muestra evento[0]=0.0 MW con grupo, evento[1]=1.54 MW sin grupo
+CAMBIO V27 (INTEGRACIÓN COMPLETA):
+- NUEVA función: obtener_contexto_latest() para leer eventos en latest.php
+- MODIFICADA: analizar_puntos_distancia() ahora recibe contexto_latest
+- MODIFICADA: clasificar_confianza() detecta duplicados con latest.php
+- ESTRATEGIA: Usar estrella verde como calibración
+  * Estrella verde → Evento lejano en latest.php (FALSO_POSITIVO)
+  * Píxeles rojos → Evento cercano NO en latest.php (ALERTA_TERMICA_OCR)
+- VENTANA TEMPORAL: ±10 min (scraper latest.php corre cada 5 min)
 
-PRESERVA V24:
+CASO USO: Tupungatito
+- 1.32 MW (18.1 km) en latest.php → Estrella verde → NO guardar OCR
+- 0.29 MW (< 7 km) NO en latest.php → Píxeles rojos → Guardar OCR
+
+PRESERVA V26:
+- Orden temporal grupos
+- Filtro VRP válidos
 - Umbral 3 px²
 - Tupungatito 7 km
 
@@ -41,6 +50,105 @@ import pytz
 import re
 import os
 from PIL import Image
+
+# ========================================
+# NUEVA V27: CONTEXTO LATEST.PHP
+# ========================================
+
+def obtener_contexto_latest(volcan_nombre, sensor, eventos_ocr, df_consolidado):
+    """
+    V27: Obtiene contexto de latest.php para eventos cercanos temporalmente
+    
+    PROPÓSITO:
+    - Identificar eventos en latest.php que corresponden a estrella verde
+    - Ventana temporal: ±10 min (scraper latest corre cada 5 min)
+    - Permite diferenciar eventos simultáneos por su distancia conocida
+    
+    CASO USO: Tupungatito
+    - OCR detecta: 1.32 MW + 0.29 MW
+    - latest.php tiene: 1.32 MW a 18.1 km (FALSO_POSITIVO)
+    - Contexto indica: 1.32 MW → Estrella verde (NO guardar OCR)
+    - Por eliminación: 0.29 MW → Píxeles rojos (SÍ guardar OCR)
+    
+    Args:
+        volcan_nombre: Nombre del volcán
+        sensor: Sensor (VIIRS375, VIIRS, MODIS)
+        eventos_ocr: Lista de eventos detectados en OCR
+        df_consolidado: DataFrame con registro_vrp_consolidado.csv
+    
+    Returns:
+        dict: {
+            'tiene_eventos_latest': bool,
+            'eventos_lejanos': list de dicts con {timestamp, distancia_km, vrp_mw},
+            'eventos_cercanos': list de dicts con {timestamp, distancia_km, vrp_mw}
+        }
+    """
+    if df_consolidado is None or df_consolidado.empty:
+        return {
+            'tiene_eventos_latest': False,
+            'eventos_lejanos': [],
+            'eventos_cercanos': []
+        }
+    
+    # Importar LIMITES_Y_COORDENADAS (definido más abajo)
+    # Por ahora, usar un dict local para evitar circular import
+    limites_default = {
+        'Lastarria': 3.0, 'PlanchonPeteroa': 3.0, 'Peteroa': 3.0,
+        'Copahue': 4.0, 'Lascar': 5.0, 'Isluga': 5.0,
+        'Nevados de Chillan': 5.0, 'ChillanNevadosde': 5.0,
+        'Llaima': 5.0, 'Villarrica': 5.0, 'Chaiten': 5.0,
+        'Puyehue-Cordon Caulle': 20.0, 'PuyehueCordonCaulle': 20.0,
+        'Tupungatito': 7.0
+    }
+    limite_km = limites_default.get(volcan_nombre, 5.0)
+    
+    # Ventana temporal: ±10 minutos de cada evento OCR
+    ventana_segundos = 600  # 10 minutos
+    
+    eventos_lejanos = []
+    eventos_cercanos = []
+    
+    for evento_ocr in eventos_ocr:
+        ts_ocr = evento_ocr['timestamp']
+        ts_min = ts_ocr - ventana_segundos
+        ts_max = ts_ocr + ventana_segundos
+        
+        # Buscar eventos en latest.php cercanos temporalmente
+        mask = (
+            (df_consolidado['Volcan'] == volcan_nombre) &
+            (df_consolidado['Sensor'] == sensor) &
+            (df_consolidado['timestamp'] >= ts_min) &
+            (df_consolidado['timestamp'] <= ts_max) &
+            (df_consolidado['VRP_MW'] > 0)
+        )
+        
+        eventos_latest = df_consolidado[mask]
+        
+        for idx, row in eventos_latest.iterrows():
+            evento_info = {
+                'timestamp': int(row['timestamp']),
+                'distancia_km': float(row['Distancia_km']),
+                'vrp_mw': float(row['VRP_MW']),
+                'tipo_registro': row['Tipo_Registro']
+            }
+            
+            # Clasificar según distancia
+            if row['Distancia_km'] > limite_km:
+                # Evento lejano (FALSO_POSITIVO en latest.php)
+                # Corresponde a ESTRELLA VERDE en Dist.png
+                if evento_info not in eventos_lejanos:
+                    eventos_lejanos.append(evento_info)
+            else:
+                # Evento cercano (ALERTA_TERMICA en latest.php)
+                # Ya está siendo procesado por scraper.py
+                if evento_info not in eventos_cercanos:
+                    eventos_cercanos.append(evento_info)
+    
+    return {
+        'tiene_eventos_latest': len(eventos_lejanos) > 0 or len(eventos_cercanos) > 0,
+        'eventos_lejanos': eventos_lejanos,
+        'eventos_cercanos': eventos_cercanos
+    }
 
 # ========================================
 # COORDENADAS DE LÍMITES
@@ -125,24 +233,29 @@ def detectar_grupos_pixeles_rojos(roi, umbral_area_minima=3):
 
 
 def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
-    # =====FIX V25: Filtrar eventos VRP válidos antes de asociar=====
-    # PROBLEMA: Grupo asignado a evento[0] aunque sea VRP=0.0 (inválido)
-    # SOLUCIÓN: Asociar solo a eventos con VRP > 0
-    # EVIDENCIA: Lascar 1.54 MW sin grupo (asignado a 0.0 MW)
-    # ==============================================================
+    # =====FIX V26: Asociar por ORDEN TEMPORAL=====
+    # PROBLEMA V25: Asociaba por índice, causaba asignaciones incorrectas
+    # EVIDENCIA: Tupungatito 0.29 MW (grupo Y=273 parte baja) asignado a 1.32 MW
+    # SOLUCIÓN: Asociar grupos ordenados por Y (descendente) a eventos ordenados temporalmente
+    # 
+    # LÓGICA:
+    # - Eventos ya vienen ordenados cronológicamente (más reciente primero)
+    # - Grupos ordenados por Y descendente (más alto = más reciente visualmente)
+    # - Asociación: evento_reciente[0] ← grupo_alto[0]
+    # ==================================================
     """
-    V25: Asocia grupos SOLO a eventos con VRP válido (> 0)
+    V26: Asocia grupos a eventos por ORDEN TEMPORAL
     
-    CAMBIO V25: Filtrar eventos VRP > 0 antes de asociar
+    CAMBIO V26: Asociación por orden cronológico, no por índice ciego
     
     Estrategia:
-    - Filtrar eventos con VRP > 0 y != NaN
-    - Si 1 grupo + 1 evento válido → Asociación directa
-    - Si múltiples grupos → Asociar por índice solo entre válidos
+    - Filtrar eventos con VRP > 0
+    - Ordenar grupos por Y DESCENDENTE (top = más reciente)
+    - Asociar por orden: grupo[0] (top) → evento_reciente[0]
     
     Args:
-        eventos: Lista de eventos extraídos de Latest10NTI
-        grupos: Lista de grupos detectados en ROI
+        eventos: Lista de eventos (YA ordenados cronológicamente, más reciente primero)
+        grupos: Lista de grupos detectados en ROI (ordenados por Y ascendente)
         roi_y_start: Coordenada Y inicial del ROI en imagen completa
     
     Returns:
@@ -151,31 +264,48 @@ def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
     if not grupos:
         return {}
     
-    # =====NUEVO V25: Filtrar solo eventos VRP válidos=====
+    # Filtrar solo eventos VRP válidos (preservado V25)
+    # =====NUEVO V27: PASO 2 - Excluir eventos en latest.php=====
+    # No asociar grupos a eventos que ya están en latest.php
+    # porque no los vamos a guardar en OCR (son duplicados)
+    # ===========================================================
     eventos_validos = []
     indices_originales = []
     
     for i, evento in enumerate(eventos):
         vrp = evento.get('vrp_mw', 0)
-        if vrp > 0 and not np.isnan(vrp):
+        en_latest = evento.get('en_latest_php', False)  # =====NUEVO V27=====
+        
+        # Validar: VRP > 0 Y NO esté en latest.php
+        if vrp > 0 and not np.isnan(vrp) and not en_latest:
             eventos_validos.append(evento)
             indices_originales.append(i)
+        elif en_latest:
+            # Log informativo de exclusión
+            print(f"      ⏭️ Evento {i+1} ({vrp:.2f} MW) excluido de asociación (ya en latest.php)")
     
     if not eventos_validos:
         return {}
-    # ======================================================
     
-    if len(grupos) == 1 and len(eventos_validos) == 1:
-        # 1 grupo + 1 evento válido → Asociación directa
-        grupo = grupos[0].copy()
+    # =====NUEVO V26: Ordenar grupos por Y DESCENDENTE (top primero)=====
+    # Grupos vienen ordenados por Y ascendente, invertir para tener top primero
+    grupos_ordenados = sorted(grupos, key=lambda g: g['centro_y'], reverse=True)
+    # ===================================================================
+    
+    if len(grupos_ordenados) == 1 and len(eventos_validos) == 1:
+        # Caso simple: 1 grupo + 1 evento
+        grupo = grupos_ordenados[0].copy()
         grupo['y_absoluto'] = roi_y_start + grupo['centro_y']
         return {indices_originales[0]: grupo}
     
-    # Múltiples grupos o eventos → Asociar por índice entre válidos
+    # Múltiples grupos o eventos → Asociar por orden temporal
+    # grupo[0] (top/reciente) → evento[0] (más reciente)
+    # grupo[1] (siguiente) → evento[1] (siguiente)
     asociaciones = {}
+    
     for idx_valido, evento in enumerate(eventos_validos):
-        if idx_valido < len(grupos):
-            grupo = grupos[idx_valido].copy()
+        if idx_valido < len(grupos_ordenados):
+            grupo = grupos_ordenados[idx_valido].copy()
             grupo['y_absoluto'] = roi_y_start + grupo['centro_y']
             # Asociar al índice ORIGINAL del evento
             asociaciones[indices_originales[idx_valido]] = grupo
@@ -288,19 +418,27 @@ def extraer_eventos_latest10nti(img_path):
         return []
 
 
-def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
+def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre, contexto_latest=None):
+    # =====NUEVO V27: Parámetro contexto_latest=====
+    # Recibe info de latest.php para asociar correctamente
+    # contexto_latest = {
+    #     'tiene_eventos_latest': bool,
+    #     'eventos_lejanos': [{timestamp, distancia_km, vrp_mw}],
+    #     'eventos_cercanos': [...]
+    # }
+    # ===============================================
     """
-    V19: Detecta grupos de píxeles rojos y asocia a eventos individuales
+    V27: Usa contexto de latest.php para asociación precisa
+    BASE V19: Detecta grupos píxeles rojos y asocia a eventos individuales
     PRESERVA V17: ROI temporal (x: 0.8424-0.8635, y: 0.1817-0.4933)
     
-    MEJORAS V19:
-    - Detecta grupos separados de píxeles rojos
-    - Asocia cada grupo a su evento correspondiente
-    - Calcula datos POR EVENTO individual (y_absoluto, área)
+    NUEVO V27:
+    - Recibe contexto_latest con eventos en latest.php
+    - Marca eventos que ya están en latest.php (duplicados)
+    - Asocia grupos solo a eventos NO en latest.php
     
-    COMPATIBILIDAD V17:
-    - Mantiene análisis global (ratio_rojos, ratio_negros)
-    - Funciona igual para casos con 1 evento
+    COMPATIBILIDAD:
+    - Si contexto_latest=None, funciona como V26 (sin cambios)
     """
     try:
         if not os.path.exists(img_dist_path):
@@ -325,7 +463,7 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         
         roi = img_rgb[roi_y_start:roi_y_end, roi_x_start:roi_x_end]
         
-        print(f"\n🎯 V25 - Analizando píxeles con ROI TEMPORAL + GRUPOS (umbral 3 px²)")
+        print(f"\n🎯 V27 - Analizando píxeles con ROI TEMPORAL + GRUPOS + CONTEXTO LATEST")
         print(f"   📍 ROI temporal: X={roi_x_start}-{roi_x_end}, Y={roi_y_start}-{roi_y_end}")
         print(f"   📏 Tamaño ROI: {roi.shape[1]}x{roi.shape[0]} = {roi.shape[0]*roi.shape[1]} px²")
         
@@ -342,6 +480,45 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
         
         # Asociar grupos a eventos
         asociaciones = asociar_grupos_a_eventos(eventos, grupos, roi_y_start)
+        
+        # =====NUEVO V27: PASO 1 - Marcar eventos en latest.php=====
+        # Compara timestamps OCR con eventos en contexto_latest
+        # Marca duplicados para excluirlos de guardado
+        # ==========================================================
+        if contexto_latest and contexto_latest['tiene_eventos_latest']:
+            print(f"\n   🔍 V27 - Verificando duplicados con latest.php:")
+            
+            eventos_marcados = 0
+            for evento in eventos:
+                ts_evento = evento['timestamp']
+                
+                # Buscar en eventos lejanos (FALSO_POSITIVO en latest.php)
+                for ev_latest in contexto_latest['eventos_lejanos']:
+                    # Ventana ±60 segundos (diferencias de redondeo timestamp)
+                    if abs(ts_evento - ev_latest['timestamp']) <= 60:
+                        evento['en_latest_php'] = True
+                        evento['distancia_latest'] = ev_latest['distancia_km']
+                        evento['tipo_latest'] = 'FALSO_POSITIVO'
+                        eventos_marcados += 1
+                        print(f"      ⚠️ Evento {evento['vrp_mw']:.2f} MW → DUPLICADO latest.php (dist={ev_latest['distancia_km']:.1f} km)")
+                        break
+                
+                # También buscar en eventos cercanos
+                if not evento.get('en_latest_php', False):
+                    for ev_latest in contexto_latest['eventos_cercanos']:
+                        if abs(ts_evento - ev_latest['timestamp']) <= 60:
+                            evento['en_latest_php'] = True
+                            evento['distancia_latest'] = ev_latest['distancia_km']
+                            evento['tipo_latest'] = 'ALERTA_TERMICA'
+                            eventos_marcados += 1
+                            print(f"      ⚠️ Evento {evento['vrp_mw']:.2f} MW → DUPLICADO latest.php (dist={ev_latest['distancia_km']:.1f} km)")
+                            break
+            
+            if eventos_marcados == 0:
+                print(f"      ✅ No hay duplicados con latest.php")
+            else:
+                print(f"      ⚠️ {eventos_marcados} eventos duplicados con latest.php")
+        # ===========================================================
         
         # ========================================
         # PRESERVADO V17: Análisis global de píxeles
@@ -397,7 +574,7 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre):
             evento['pixeles_verdes'] = int(pixeles_verdes)
             evento['ratio_rojos'] = float(ratio_rojos)
             evento['ratio_negros'] = float(ratio_negros)
-            evento['metodo'] = 'roi_temporal_v25'
+            evento['metodo'] = 'roi_temporal_v26'
             
             # Datos por grupo (NUEVO V19)
             if i in asociaciones:
@@ -511,13 +688,46 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
 
 def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     """
-    V23: Sistema 3 fases con umbral grupos reducido a 10 px²
+    V27: Detecta duplicados con latest.php ANTES de clasificar
+    BASE V23: Sistema 3 fases con umbral grupos reducido a 10 px²
+    
+    NUEVO V27:
+    - Verifica si evento está en latest.php
+    - Si está → DUPLICADO_LATEST (no guardar)
+    - Si no → Continúa sistema 3 fases normal
     
     SISTEMA 3 FASES:
     FASE 1: Píxeles rojos en ROI temporal → Validación por GRUPO individual (umbral 10 px²)
     FASE 2: Estrella verde (V16 - PRESERVADO)
     FASE 3: Píxeles negros (V17 - PRESERVADO)
     """
+    
+    # =====NUEVO V27: PASO 3 - Detectar duplicados con latest.php=====
+    # Revisar ANTES de cualquier validación si evento ya está en latest.php
+    # Esto evita procesamiento innecesario y duplicados en CSV
+    # ================================================================
+    if evento.get('en_latest_php', False):
+        distancia = evento.get('distancia_latest', 0)
+        tipo_latest = evento.get('tipo_latest', 'desconocido')
+        
+        print(f"   ═════════════════════════════════════════════════════════")
+        print(f"   ⚠️ V27 - DUPLICADO CON LATEST.PHP:")
+        print(f"      Evento ya procesado por scraper.py")
+        print(f"      Distancia: {distancia:.1f} km")
+        print(f"      Tipo en latest: {tipo_latest}")
+        print(f"      ❌ NO guardar en OCR (duplicado)")
+        
+        return {
+            'guardar': False,
+            'guardar_imagenes': False,
+            'tipo_registro': 'DUPLICADO_LATEST',
+            'confianza': 'alta',
+            'requiere_verificacion': False,
+            'Color_Punto': 'sin_punto',
+            'nota': f'Duplicado con latest.php (dist={distancia:.1f} km, tipo={tipo_latest})'
+        }
+    # ================================================================
+    
     vrp_mw = evento.get('vrp_mw', 0)
     
     # Validar VRP
@@ -551,7 +761,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             distancia_aprox = ((y_absoluto - y_limite_px) / (y_eje_x - y_limite_px)) * limite_km
             
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V25 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
+            print(f"   🎯 FASE 1 V26 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
             print(f"      ✅ ALERTA_TERMICA_OCR: Grupo píxeles en Y={y_absoluto}")
             print(f"         Área={area_grupo} px², dist≈{distancia_aprox:.2f} km")
             
@@ -562,13 +772,13 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'confianza': 'alta',
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
-                'Metodo_Deteccion': 'grupo_pixeles_v25',
+                'Metodo_Deteccion': 'grupo_pixeles_v26',
                 'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
             }
         else:
             # FUERA del límite - FALSO POSITIVO
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V25 (grupo {area_grupo} px²): Y={y_absoluto} < {y_limite_px} ❌")
+            print(f"   🎯 FASE 1 V26 (grupo {area_grupo} px²): Y={y_absoluto} < {y_limite_px} ❌")
             print(f"      ❌ FALSO_POSITIVO: Grupo fuera límite")
             
             return {
@@ -682,8 +892,9 @@ def verificar_evento_no_existe(evento, volcan_nombre, sensor, df_consolidado, df
 # ========================================
 if __name__ == "__main__":
     print("="*70)
-    print("TEST: OCR UTILS V25")
-    print("  - Fix asociación grupos (solo VRP válidos)")
+    print("TEST: OCR UTILS V26")
+    print("  - Asociación grupos: Orden temporal (Y descendente)")
+    print("  - Filtro VRP válidos preservado")
     print("  - Umbral grupos: 3 px²")
     print("  - Tupungatito: 7 km")
     print("  - ROI temporal preservado")
@@ -714,11 +925,13 @@ if __name__ == "__main__":
     print(f"   Y: {roi_y1} - {roi_y2} ({roi_y2 - roi_y1} px)")
     print(f"   Área: {area_roi:,} px² ({(area_roi/area_total)*100:.2f}% del total)")
     
-    print(f"\n✅ CAMBIOS V25:")
-    print(f"   - Asociación grupos: Solo eventos VRP > 0")
-    print(f"   - Umbral grupos: 3 px²")
+    print(f"\n✅ CAMBIOS V26:")
+    print(f"   - Asociación grupos: Orden temporal (top→reciente)")
+    print(f"   - Grupos ordenados Y DESC: más alto = más reciente")
+    print(f"   - Filtro VRP > 0 preservado")
+    print(f"   - Umbral: 3 px²")
     print(f"   - Tupungatito: 7 km")
     
     print("\n" + "="*70)
-    print("✅ OCR UTILS V25 LISTO")
+    print("✅ OCR UTILS V26 LISTO")
     print("="*70)
