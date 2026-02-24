@@ -1,7 +1,20 @@
 """
-SCRAPER_OCR.PY V20 FIX - KeyError 'nota' solucionado
-BASE: V19 FINAL + FIX KeyError 'nota'
-FIX: Usar .get() para campo 'nota' opcional en clasificacion dict
+SCRAPER_OCR.PY V21 - Integración contexto latest.php
+BASE: V20 (FIX KeyError 'nota') + NUEVO contexto latest.php
+
+CAMBIO V21:
+- NUEVO: Llamada a obtener_contexto_latest() después de OCR
+- MODIFICADO: Pasar contexto_latest a analizar_puntos_distancia()
+- ESTRATEGIA: Usar eventos en latest.php para evitar duplicados
+  * Si evento está en latest.php → NO guardar en OCR
+  * Si evento NO está en latest.php → Guardar en OCR
+  
+COMPATIBLE CON: ocr_utils V27
+
+PRESERVA V20:
+- FIX KeyError 'nota'
+- Filtro 24h
+- Orden parámetros correcto
 """
 
 import requests
@@ -14,7 +27,8 @@ from ocr_utils import (
     extraer_eventos_latest10nti,
     analizar_puntos_distancia,
     clasificar_confianza,
-    verificar_evento_no_existe
+    verificar_evento_no_existe,
+    obtener_contexto_latest  # =====NUEVO V21=====
 )
 
 # =========================
@@ -183,13 +197,43 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     eventos = eventos_validos
     # ==============================================
     
-    # =====CRÍTICO V19: ORDEN CORRECTO DE PARÁMETROS=====
-    # analizar_puntos_distancia(PATH_string, LISTA_eventos, NOMBRE_string)
-    # NO cambiar el orden - causa TypeError si se invierten
-    # ====================================================
+    # =====NUEVO V21: OBTENER CONTEXTO LATEST.PHP=====
+    # Buscar eventos en latest.php cercanos temporalmente (±10 min)
+    # Permite identificar duplicados y asociar correctamente grupos
+    # ================================================
+    print(f"\n📊 OBTENIENDO CONTEXTO LATEST.PHP...")
+    contexto_latest = obtener_contexto_latest(
+        volcan_nombre=nombre_v,
+        sensor=sensor,
+        eventos_ocr=eventos,
+        df_consolidado=df_consolidado
+    )
+    
+    if contexto_latest['tiene_eventos_latest']:
+        print(f"   ✅ Eventos encontrados en latest.php:")
+        if contexto_latest['eventos_lejanos']:
+            print(f"      Lejanos (>límite): {len(contexto_latest['eventos_lejanos'])}")
+            for ev in contexto_latest['eventos_lejanos']:
+                print(f"         - {ev['vrp_mw']:.2f} MW @ {ev['distancia_km']:.1f} km")
+        if contexto_latest['eventos_cercanos']:
+            print(f"      Cercanos (≤límite): {len(contexto_latest['eventos_cercanos'])}")
+            for ev in contexto_latest['eventos_cercanos']:
+                print(f"         - {ev['vrp_mw']:.2f} MW @ {ev['distancia_km']:.1f} km")
+    else:
+        print(f"   ℹ️ No hay eventos en latest.php (todos son exclusivos OCR)")
+    # ================================================
+    
+    # =====MODIFICADO V21: Pasar contexto_latest=====
+    # analizar_puntos_distancia(PATH, LISTA, NOMBRE, CONTEXTO)
+    # El contexto permite identificar duplicados con latest.php
+    # ========================================================
     if os.path.exists(temp_dist):
-        eventos = analizar_puntos_distancia(temp_dist, eventos, nombre_v)
-        #                                   ^1°PATH  ^2°LIST  ^3°NOMBRE
+        eventos = analizar_puntos_distancia(
+            temp_dist,           # 1° PATH_string
+            eventos,             # 2° LISTA_eventos
+            nombre_v,            # 3° NOMBRE_string
+            contexto_latest      # 4° =====NUEVO V21: contexto_latest=====
+        )
     
     # Preparar img_dist_path para FASE 2 (estrella verde)
     img_dist_path = temp_dist if os.path.exists(temp_dist) else None
@@ -288,7 +332,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Requiere_Verificacion': clasificacion['requiere_verificacion'],
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
             'Nota_Validacion': clasificacion['nota'],
-            'Version_OCR': '20.0'  # V20 FIX: KeyError 'nota'
+            'Version_OCR': '21.0'  # V21: Contexto latest.php
         }
         
         eventos_nuevos.append(nuevo_evento)
@@ -310,7 +354,7 @@ def procesar():
     os.makedirs(CARPETA_LOGS, exist_ok=True)
     
     print("="*80)
-    print("🔬 SCRAPER OCR V20 FIX - INICIO (Fix KeyError 'nota')")
+    print("🔬 SCRAPER OCR V21 - INICIO (Contexto latest.php)")
     print("="*80)
     
     session = requests.Session()
