@@ -53869,3 +53869,6 @@
 [2026-03-05 22:20:44] Proceso completado correctamente.
 [2026-03-05 22:26:05] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-03-05 22:26:36] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Read timed out. (read timeout=30)
+[2026-03-05 22:30:43] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-03-05 22:30:54] Filas leídas desde latest.php: 0
+[2026-03-05 22:30:54] Proceso completado correctamente.
