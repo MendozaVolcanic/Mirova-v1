@@ -59663,3 +59663,6 @@
 [2026-03-12 15:55:46] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-03-12 15:55:47] Filas leídas desde latest.php: 524
 [2026-03-12 15:55:47] Proceso completado correctamente.
+[2026-03-12 16:02:20] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-03-12 16:02:21] Filas leídas desde latest.php: 525
+[2026-03-12 16:02:21] Proceso completado correctamente.
