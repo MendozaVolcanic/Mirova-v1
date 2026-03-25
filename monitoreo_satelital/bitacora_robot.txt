@@ -70856,3 +70856,6 @@
 [2026-03-25 17:06:23] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Read timed out. (read timeout=30)
 [2026-03-25 17:10:51] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-03-25 17:11:08] ERROR: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+[2026-03-25 17:15:50] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-03-25 17:16:25] Filas leídas desde latest.php: 525
+[2026-03-25 17:16:25] Proceso completado correctamente.
