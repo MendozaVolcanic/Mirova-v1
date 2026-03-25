@@ -70840,3 +70840,5 @@
 [2026-03-25 16:26:20] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Max retries exceeded with url: /NRT/latest.php (Caused by NewConnectionError("HTTPSConnection(host='www.mirovaweb.it', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable"))
 [2026-03-25 16:30:48] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-03-25 16:31:00] ERROR: ('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))
+[2026-03-25 16:35:45] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-03-25 16:36:21] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Read timed out. (read timeout=30)
