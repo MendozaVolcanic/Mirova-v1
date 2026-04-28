@@ -1,1 +1,2 @@
-timestamp,Fecha_Satelite_UTC,Fecha_Captura_Chile,Volcan,Sensor,VRP_MW,Distancia_km,Tipo_Registro,Clasificacion Mirova,Ruta Foto,Fecha_Proceso_GitHub,Ultima_Actualizacion,Editado
+timestamp,Fecha_Satelite_UTC,Fecha_Captura_Chile,Volcan,Sensor,VRP_MW,Distancia_km,Tipo_Registro,Clasificacion Mirova,Ruta Foto,Fecha_Proceso_GitHub,Ultima_Actualizacion,Editado,Origen_Dato,Confianza_Validacion,Requiere_Verificacion,Nota_Validacion
+1777317481,2026-04-27 19:18:01,2026-04-27 15:18:01,Llaima,VIIRS375,0.27,0.0,ALERTA_TERMICA_OCR,Bajo,imagenes_satelitales/Llaima/2026-04-27/19-18-01_Llaima_VIIRS375_VRP.png,2026-04-28 00:31:23,2026-04-28 00:31:23,NO,OCR,alta,False,"Estrella en Y=363 (dentro límite Y=257, dist≈0.00 km)"
