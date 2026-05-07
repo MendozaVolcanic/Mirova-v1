@@ -107569,3 +107569,5 @@
 [2026-05-07 13:46:34] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Max retries exceeded with url: /NRT/latest.php (Caused by NewConnectionError("HTTPSConnection(host='www.mirovaweb.it', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable"))
 [2026-05-07 13:51:02] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-05-07 13:51:32] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Max retries exceeded with url: /NRT/latest.php (Caused by NewConnectionError("HTTPSConnection(host='www.mirovaweb.it', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable"))
+[2026-05-07 13:56:06] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-05-07 13:56:36] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Max retries exceeded with url: /NRT/latest.php (Caused by NewConnectionError("HTTPSConnection(host='www.mirovaweb.it', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable"))
