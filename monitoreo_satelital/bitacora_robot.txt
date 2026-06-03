@@ -129759,3 +129759,6 @@
 [2026-06-02 22:15:59] Proceso completado correctamente.
 [2026-06-02 22:21:01] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-06-02 22:21:32] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Max retries exceeded with url: /NRT/latest.php (Caused by NewConnectionError("HTTPSConnection(host='www.mirovaweb.it', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable"))
+[2026-06-02 22:25:59] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-06-02 22:26:00] Filas leídas desde latest.php: 528
+[2026-06-02 22:26:01] Proceso completado correctamente.
