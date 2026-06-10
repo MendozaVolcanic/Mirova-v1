@@ -1,10 +1,14 @@
-requests
-beautifulsoup4
-pandas
-lxml
-pytz
-numpy
-plotly
-matplotlib
-pytesseract
-opencv-python
+# Dependencias fijadas al estado conocido-bueno validado en CI (2026-06-10,
+# Python 3.12 / Ubuntu 24.04). Para actualizar: subir versión + correr un
+# workflow y confirmar verde. Dependabot avisa cuando hay updates/CVE.
+requests==2.34.2
+beautifulsoup4==4.15.0
+pandas==3.0.3
+lxml==6.1.1
+pytz==2026.2
+numpy==2.4.6
+plotly==6.8.0
+matplotlib==3.10.9
+pytesseract==0.3.13
+opencv-python==4.13.0.92
+Pillow==12.2.0
