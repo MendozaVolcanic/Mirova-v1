@@ -5,7 +5,11 @@ on:
 
 concurrency:
   group: monitor-vrp
-  cancel-in-progress: true 
+  cancel-in-progress: true
+
+# Red de seguridad: fuerza Node 24 en cualquier acción aún en Node 20
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
@@ -15,12 +19,12 @@ jobs:
 
     steps:
       - name: Checkout del repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 

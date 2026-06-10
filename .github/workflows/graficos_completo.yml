@@ -10,6 +10,10 @@ concurrency:
   group: generador-graficos
   cancel-in-progress: true
 
+# Red de seguridad: fuerza Node 24 en cualquier acción aún en Node 20
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   pintar_y_publicar:
     runs-on: ubuntu-latest
@@ -26,10 +30,10 @@ jobs:
 
     steps:
       - name: Checkout del repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -87,13 +91,13 @@ jobs:
       # index.html está en RAÍZ del repositorio
       # ========================================
       - name: Configurar Pages
-        uses: actions/configure-pages@v4
-      
+        uses: actions/configure-pages@v6
+
       - name: Subir artefacto a Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: '.'  # ✅ TODO el repo (index.html en raíz)
-      
+
       - name: Deploy a GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
