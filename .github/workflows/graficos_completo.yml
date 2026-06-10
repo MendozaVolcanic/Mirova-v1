@@ -18,14 +18,20 @@ jobs:
       pages: write        # ✅ NECESARIO para deploy
       id-token: write     # ✅ NECESARIO para deploy
 
+    # ✅ Requerido por deploy-pages@v4: sin este environment el deploy
+    #    devuelve 401 "Requires authentication" (token OIDC sin alcance).
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout del repositorio
         uses: actions/checkout@v4
 
       - name: Configurar Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.12'
 
       - name: Instalar dependencias
         run: |
