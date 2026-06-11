@@ -1,0 +1,27 @@
+# Dependabot: vigila dependencias y abre PRs cuando hay updates o CVEs.
+# Flujo previsto: aparece el PR -> una IA lo verifica (corre workflows) -> mergea.
+# Auto-merge NO activado todavia (pendiente item #7: tests reales).
+version: 2
+updates:
+  # Dependencias Python (requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  # GitHub Actions (.github/workflows) — avisa de bumps como el Node 20->24
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
