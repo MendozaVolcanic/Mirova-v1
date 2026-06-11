@@ -1,10 +1,13 @@
 """
 Test de equivalencia (golden master): garantiza que las estructuras DERIVADAS
-de volcanes.py son IDÉNTICAS a las que estaban hardcodeadas en cada módulo antes
-del refactor. Si este test pasa, el comportamiento NO cambió.
+de volcanes.py son IDÉNTICAS al estado esperado. Si este test pasa, no hubo
+cambios accidentales de configuración.
 
-Los valores GOLDEN_* son copias literales del estado anterior al refactor
-(scraper.py, ocr_utils.py, index.html, visualizador.py).
+Los valores GOLDEN_* parten del estado previo al refactor (scraper.py,
+ocr_utils.py, index.html, visualizador.py) con DOS cambios intencionales de
+calibración (auditoría empírica 2026-06-11, ver tasks/AUDITORIA_OCR_EMPIRICA):
+  1. Tupungatito Y_LIMITE_PX 257 → 243  (257 equivalía a 5.1 km; 7 km ≈ y=243)
+  2. Y_EJE_X_PX 335 → 295 en todos      (el eje 0 km real está en y=295)
 
 Ejecutar:  python tests/test_volcanes_equivalencia.py   (o: pytest tests/)
 """
@@ -30,20 +33,20 @@ GOLDEN_VOLCANES_CONFIG = {
 
 # ---- GOLDEN: ocr_utils.py::LIMITES_Y_COORDENADAS (estado previo, 14 claves) ----
 GOLDEN_LIMITES = {
-    'Lastarria': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
-    'PlanchonPeteroa': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
-    'Peteroa': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
-    'Copahue': {'Y_LIMITE_PX': 266, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 4.0},
-    'Lascar': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Isluga': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Nevados de Chillan': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'ChillanNevadosde': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Llaima': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Villarrica': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Chaiten': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Puyehue-Cordon Caulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
-    'PuyehueCordonCaulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
-    'Tupungatito': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 7.0},
+    'Lastarria': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 3.0},
+    'PlanchonPeteroa': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 3.0},
+    'Peteroa': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 3.0},
+    'Copahue': {'Y_LIMITE_PX': 266, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 4.0},
+    'Lascar': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 5.0},
+    'Isluga': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 5.0},
+    'Nevados de Chillan': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 5.0},
+    'ChillanNevadosde': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 5.0},
+    'Llaima': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 5.0},
+    'Villarrica': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 5.0},
+    'Chaiten': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 5.0},
+    'Puyehue-Cordon Caulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 20.0},
+    'PuyehueCordonCaulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 20.0},
+    'Tupungatito': {'Y_LIMITE_PX': 243, 'Y_EJE_X_PX': 295, 'LIMITE_KM': 7.0},  # corregido 2026-06
 }
 
 # ---- GOLDEN: visualizador.py::VOLCANES (mismos 11 nombres) ----

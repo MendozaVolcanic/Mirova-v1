@@ -13,8 +13,11 @@ Campos por volcán (clave = ID numérico de MIROVA):
   display       : nombre lindo para el dashboard (con tildes)
   region        : región administrativa de Chile
   limite_km     : radio de geofencing del cráter (validado por OVDAS)
-  y_limite_px   : línea de límite en píxeles sobre el gráfico Dist.png (850×600)
-  y_eje_x_px    : posición del eje X (dist=0) en píxeles
+  y_limite_px   : línea de límite en píxeles sobre el panel "Last Month" de
+                  Dist.png (850×600). Geometría verificada empíricamente
+                  (auditoría 2026-06-11): eje 0 km en y=295, 25 km en y=110
+                  → 7.4 px/km → y_limite = 295 - 7.4*limite_km
+  y_eje_x_px    : fila del eje X (dist=0 km) = 295 (medido en 33/33 imágenes)
   alias         : nombres alternativos que pueden aparecer en datos/lookups
 
 Sin dependencias pesadas: este módulo es Python puro e importable en cualquier lado.
@@ -23,30 +26,32 @@ Sin dependencias pesadas: este módulo es Python puro e importable en cualquier 
 VOLCANES = {
     # ===== ZONA NORTE =====
     "355030": dict(nombre="Isluga", id_mirova="Isluga", display="Isluga",
-                   region="Tarapacá", limite_km=5.0, y_limite_px=257, y_eje_x_px=335, alias=[]),
+                   region="Tarapacá", limite_km=5.0, y_limite_px=257, y_eje_x_px=295, alias=[]),
     "355100": dict(nombre="Lascar", id_mirova="Lascar", display="Láscar",
-                   region="Antofagasta", limite_km=5.0, y_limite_px=257, y_eje_x_px=335, alias=[]),
+                   region="Antofagasta", limite_km=5.0, y_limite_px=257, y_eje_x_px=295, alias=[]),
     "355120": dict(nombre="Lastarria", id_mirova="Lastarria", display="Lastarria",
-                   region="Antofagasta", limite_km=3.0, y_limite_px=272, y_eje_x_px=335, alias=[]),
+                   region="Antofagasta", limite_km=3.0, y_limite_px=272, y_eje_x_px=295, alias=[]),
     # ===== ZONA CENTRO =====
+    # Tupungatito: y_limite corregido 257→243 (auditoría 2026-06-11). El valor 257
+    # equivalía a 5.1 km; con 7 km el límite cae en y = 295 - 7.4*7 ≈ 243.
     "357010": dict(nombre="Tupungatito", id_mirova="Tupungatito", display="Tupungatito",
-                   region="Metropolitana", limite_km=7.0, y_limite_px=257, y_eje_x_px=335, alias=[]),
+                   region="Metropolitana", limite_km=7.0, y_limite_px=243, y_eje_x_px=295, alias=[]),
     "357040": dict(nombre="PlanchonPeteroa", id_mirova="PlanchonPeteroa", display="Planchón-Peteroa",
-                   region="Maule", limite_km=3.0, y_limite_px=272, y_eje_x_px=335, alias=["Peteroa"]),
+                   region="Maule", limite_km=3.0, y_limite_px=272, y_eje_x_px=295, alias=["Peteroa"]),
     "357070": dict(nombre="Nevados de Chillan", id_mirova="ChillanNevadosde", display="Nevados de Chillán",
-                   region="Ñuble", limite_km=5.0, y_limite_px=257, y_eje_x_px=335, alias=["ChillanNevadosde"]),
+                   region="Ñuble", limite_km=5.0, y_limite_px=257, y_eje_x_px=295, alias=["ChillanNevadosde"]),
     # ===== ZONA SUR =====
     "357090": dict(nombre="Copahue", id_mirova="Copahue", display="Copahue",
-                   region="Biobío", limite_km=4.0, y_limite_px=266, y_eje_x_px=335, alias=[]),
+                   region="Biobío", limite_km=4.0, y_limite_px=266, y_eje_x_px=295, alias=[]),
     "357110": dict(nombre="Llaima", id_mirova="Llaima", display="Llaima",
-                   region="Araucanía", limite_km=5.0, y_limite_px=257, y_eje_x_px=335, alias=[]),
+                   region="Araucanía", limite_km=5.0, y_limite_px=257, y_eje_x_px=295, alias=[]),
     "357120": dict(nombre="Villarrica", id_mirova="Villarrica", display="Villarrica",
-                   region="Araucanía", limite_km=5.0, y_limite_px=257, y_eje_x_px=335, alias=[]),
+                   region="Araucanía", limite_km=5.0, y_limite_px=257, y_eje_x_px=295, alias=[]),
     "357150": dict(nombre="Puyehue-Cordon Caulle", id_mirova="PuyehueCordonCaulle", display="Puyehue-Cordón Caulle",
-                   region="Los Ríos", limite_km=20.0, y_limite_px=148, y_eje_x_px=335, alias=["PuyehueCordonCaulle"]),
+                   region="Los Ríos", limite_km=20.0, y_limite_px=148, y_eje_x_px=295, alias=["PuyehueCordonCaulle"]),
     # ===== ZONA AUSTRAL =====
     "358041": dict(nombre="Chaiten", id_mirova="Chaiten", display="Chaitén",
-                   region="Los Lagos", limite_km=5.0, y_limite_px=257, y_eje_x_px=335, alias=[]),
+                   region="Los Lagos", limite_km=5.0, y_limite_px=257, y_eje_x_px=295, alias=[]),
 }
 
 

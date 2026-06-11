@@ -729,12 +729,14 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         
         limites = LIMITES_Y_COORDENADAS.get(volcan_nombre, {})
         y_limite_px = limites.get('Y_LIMITE_PX', 257)
-        y_eje_x = limites.get('Y_EJE_X_PX', 335)
+        y_eje_x = limites.get('Y_EJE_X_PX', 295)  # eje 0 km real (auditoría 2026-06)
         limite_km = limites.get('LIMITE_KM', 5.0)
         
         if y_absoluto >= y_limite_px:
             # DENTRO del límite - VRP REAL
-            distancia_aprox = ((y_absoluto - y_limite_px) / (y_eje_x - y_limite_px)) * limite_km
+            # Distancia desde el cráter: 0 km en el eje (y_eje_x), limite_km en la línea
+            # de límite (y_limite_px). Fórmula corregida 2026-06 (antes estaba invertida).
+            distancia_aprox = ((y_eje_x - y_absoluto) / (y_eje_x - y_limite_px)) * limite_km
             
             print(f"   ═════════════════════════════════════════════════════════")
             print(f"   🎯 FASE 1 V26 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
