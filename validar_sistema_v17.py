@@ -58,14 +58,16 @@ VALIDACIONES_CRITICAS = {
         'critico': True,
         'descripcion': 'Función debe recibir 3 parámetros exactos'
     },
+    # Patrones tolerantes a formato multilínea (el código real escribe
+    # "mask_rojos = (\n  (roi[:, :, 0] > 150) & ..." desde V17+)
     'Detección píxeles rojos': {
-        'patron': r"mask_rojos\s*=\s*\(roi\[:,\s*:,\s*0\]\s*>\s*150\)",
+        'patron': r"mask_rojos\s*=\s*\(\s*\(roi\[:,\s*:,\s*0\]\s*>\s*150\)",
         'archivo': 'ocr_utils.py',
         'critico': True,
         'descripcion': 'Debe detectar píxeles rojos en ROI'
     },
     'Detección píxeles negros': {
-        'patron': r"mask_negros\s*=\s*\(roi\[:,\s*:,\s*0\]\s*<\s*100\)",
+        'patron': r"mask_negros\s*=\s*\(\s*\(roi\[:,\s*:,\s*0\]\s*<\s*100\)",
         'archivo': 'ocr_utils.py',
         'critico': True,
         'descripcion': 'Debe detectar píxeles negros en ROI'
@@ -85,24 +87,24 @@ VALIDACIONES_CRITICAS = {
         'descripcion': 'Función de detección de estrella verde'
     },
     
-    # ===== TUPUNGATITO =====
-    'Tupungatito en scraper': {
-        'patron': r'"357010".*"Tupungatito"',
+    # ===== TUPUNGATITO (desde el refactor vive en volcanes.py, fuente única) =====
+    'Tupungatito en volcanes.py': {
+        'patron': r'"357010".*Tupungatito',
+        'archivo': 'volcanes.py',
+        'critico': False,
+        'descripcion': 'Tupungatito debe estar en la fuente única'
+    },
+    'Tupungatito límite 7 km / y=243': {
+        'patron': r'Tupungatito.*?limite_km=7\.0.*?y_limite_px=243',
+        'archivo': 'volcanes.py',
+        'critico': False,
+        'descripcion': 'Calibración corregida 2026-06 (243 = 295 - 7.4*7)'
+    },
+    'Módulos importan la fuente única': {
+        'patron': r'from volcanes import VOLCANES_CONFIG',
         'archivo': 'scraper.py',
         'critico': False,
-        'descripcion': 'Tupungatito debe estar en configuración'
-    },
-    'Tupungatito en OCR': {
-        'patron': r'"357010".*"Tupungatito"',
-        'archivo': 'scraper_ocr.py',
-        'critico': False,
-        'descripcion': 'Tupungatito debe estar en OCR'
-    },
-    'Tupungatito límites Y': {
-        'patron': r"'Tupungatito':\s*{.*'Y_LIMITE_PX'",
-        'archivo': 'ocr_utils.py',
-        'critico': False,
-        'descripcion': 'Límites de estrella verde para Tupungatito'
+        'descripcion': 'scraper.py debe derivar de volcanes.py'
     },
     
     # ===== IMPORTS NECESARIOS =====

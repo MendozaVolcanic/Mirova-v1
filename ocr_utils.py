@@ -1,5 +1,16 @@
 """
-OCR_UTILS.PY V27 - Contexto latest.php para asociación precisa
+OCR_UTILS.PY V28 - Extracción espacial por celdas (grilla 2x5)
+BASE: V27 (contexto latest.php) + NUEVO extractor espacial
+
+CAMBIO V28 (2026-06-11, ver tasks/AUDITORIA_OCR_EMPIRICA_2026-06.md):
+- NUEVA: extraer_eventos_espacial() — empareja fecha<->VRP por celda física
+  de la grilla 2x5 (image_to_data + posiciones). Inmune a corrimientos.
+- extraer_eventos_latest10nti() ahora usa espacial como primario y la página
+  completa (V11, emparejado por orden) solo como fallback si espacial <10.
+- Benchmark: espacial 330/330 pares vs 329/330 del legacy (33 imágenes vivas).
+- Calibración corregida: Tupungatito y_limite 257->243, eje 0km = y295.
+
+V27: Contexto latest.php para asociación precisa
 BASE: V26 (orden temporal) + NUEVO contexto latest.php
 
 CAMBIO V27 (INTEGRACIÓN COMPLETA):
@@ -296,9 +307,118 @@ def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
 # - Evita falsos positivos de días antiguos
 
 
+# ========================================
+# NUEVO V28: EXTRACCIÓN ESPACIAL POR CELDAS (grilla 2x5 de Latest10NTI)
+# ========================================
+# PROBLEMA del método por página completa: junta todas las fechas y todos los
+# VRP de la imagen y los empareja POR ORDEN. Si Tesseract pierde UNA fecha,
+# todos los pares siguientes quedan corridos (timestamp de un evento con el
+# VRP de otro) sin error visible.
+# SOLUCIÓN: leer las tiras de fecha y de VRP con image_to_data (posiciones) y
+# asignar cada palabra a su columna de la grilla 2x5. Fecha y VRP se emparejan
+# por CELDA física -> el corrimiento es estructuralmente imposible.
+# Benchmark 2026-06-11 (33 imágenes vivas): espacial 330/330 vs legacy 329/330.
+# Escala con alto/600 -> absorbe la variante 850x596 de MIROVA.
+# ========================================
+
+# (fecha_y1, fecha_y2, vrp_y1, vrp_y2) de cada fila de la grilla, en 850x600
+FILAS_GRILLA_NTI = [(140, 168, 313, 342), (376, 404, 548, 578)]
+ANCHO_COL_NTI = 170
+PATRON_FECHA_NTI = re.compile(r'(\d{1,2})-([A-Za-z]{3})-(\d{4})\s+(\d{2}:\d{2}:\d{2})')
+
+
+def _normalizar_texto_ocr(t):
+    """Limpia ruido típico de Tesseract en las tiras de Latest10NTI."""
+    t = re.sub(r'([A-Z])/([a-z])', r'\1\2', t)    # "J/un" -> "Jun"
+    t = re.sub(r'-/([a-z]{2})-', r'-J\1-', t)      # "-/un-" -> "-Jun-"
+    t = re.sub(r'(\d{4})(\d{2}:)', r'\1 \2', t)    # "202607:" -> "2026 07:"
+    return t
+
+
+def _palabras_con_posicion(img_bgr, y1, y2, escala=3):
+    """OCR de una tira horizontal completa. Devuelve [(x_centro_original, texto)]."""
+    g = cv2.cvtColor(img_bgr[y1:y2, :], cv2.COLOR_BGR2GRAY)
+    g = cv2.resize(g, None, fx=escala, fy=escala, interpolation=cv2.INTER_CUBIC)
+    d = pytesseract.image_to_data(g, config='--oem 3 --psm 6',
+                                  output_type=pytesseract.Output.DICT)
+    return [((d['left'][i] + d['width'][i] / 2) / escala, d['text'][i].strip())
+            for i in range(len(d['text'])) if d['text'][i].strip()]
+
+
+def extraer_eventos_espacial(img_path):
+    """
+    V28: Extrae los (hasta) 10 eventos de Latest10NTI emparejando fecha<->VRP
+    por celda de la grilla 2x5. Devuelve eventos en el mismo formato que el
+    extractor por página completa: [{'datetime','timestamp','vrp_mw'}].
+    """
+    eventos = []
+    try:
+        img = cv2.imread(img_path)
+        if img is None:
+            print(f"   ❌ Espacial: no se pudo cargar {img_path}")
+            return []
+        h = img.shape[0]
+        sy = h / 600.0  # adaptación a la variante 850x596
+
+        for (fy1, fy2, vy1, vy2) in FILAS_GRILLA_NTI:
+            celdas_f = {c: [] for c in range(5)}
+            celdas_v = {c: [] for c in range(5)}
+            for x, t in _palabras_con_posicion(img, int(fy1 * sy), int(fy2 * sy)):
+                celdas_f[min(4, max(0, int((x - 5) / ANCHO_COL_NTI)))].append(t)
+            for x, t in _palabras_con_posicion(img, int(vy1 * sy), int(vy2 * sy)):
+                celdas_v[min(4, max(0, int((x - 5) / ANCHO_COL_NTI)))].append(t)
+
+            for c in range(5):
+                tf = _normalizar_texto_ocr(' '.join(celdas_f[c]))
+                tv = _normalizar_texto_ocr(' '.join(celdas_v[c]))
+                m = PATRON_FECHA_NTI.search(tf)
+                mv = re.search(r'VRP\s*[=~]?\s*([\d.]+|NaN)\s*MW', tv, re.IGNORECASE)
+                if not (m and mv):
+                    continue
+                fecha_str = f"{m.group(1).zfill(2)}-{m.group(2)}-{m.group(3)} {m.group(4)}"
+                try:
+                    dt_obj = datetime.strptime(fecha_str, "%d-%b-%Y %H:%M:%S")
+                except ValueError:
+                    continue
+                dt_utc = dt_obj.replace(tzinfo=pytz.utc)
+                vrp_str = mv.group(1)
+                vrp_mw = 0.0 if vrp_str.lower() == 'nan' else float(vrp_str)
+                eventos.append({
+                    'datetime': dt_utc,
+                    'timestamp': int(dt_utc.timestamp()),
+                    'vrp_mw': vrp_mw
+                })
+    except Exception as e:
+        print(f"   ❌ ERROR en extraer_eventos_espacial: {e}")
+        import traceback
+        traceback.print_exc()
+    return eventos
+
+
 def extraer_eventos_latest10nti(img_path):
-    """V11: Sin cambios"""
-    print(f"\n🔍 OCR V11 - Procesando: {img_path}")
+    """
+    V28: extractor ESPACIAL como primario + página completa como fallback.
+    Mantiene el nombre público que usan scraper_ocr.py y los workflows.
+    """
+    print(f"\n🔍 OCR V28 - Procesando: {img_path}")
+    eventos_esp = extraer_eventos_espacial(img_path)
+    print(f"   📐 Espacial: {len(eventos_esp)} eventos")
+
+    if len(eventos_esp) >= 10:
+        return sorted(eventos_esp, key=lambda e: e['timestamp'], reverse=True)
+
+    # Fallback: método por página completa (si el espacial logró <10 pares)
+    eventos_leg = _extraer_eventos_pagina_completa(img_path)
+    if len(eventos_leg) > len(eventos_esp):
+        print(f"   ⚠️ Fallback página completa: {len(eventos_leg)} > {len(eventos_esp)} "
+              f"(emparejado por orden — riesgo de corrimiento)")
+        return sorted(eventos_leg, key=lambda e: e['timestamp'], reverse=True)
+    return sorted(eventos_esp, key=lambda e: e['timestamp'], reverse=True)
+
+
+def _extraer_eventos_pagina_completa(img_path):
+    """V11 (legacy): OCR de página completa, emparejado por orden. Solo fallback."""
+    print(f"\n🔍 OCR V11 (fallback) - Procesando: {img_path}")
     
     try:
         img = Image.open(img_path)

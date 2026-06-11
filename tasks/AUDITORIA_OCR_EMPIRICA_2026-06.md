@@ -50,3 +50,22 @@
 5. **Emparejamiento espacial** fecha↔VRP en Latest10NTI (por celdas de la grilla 2×5 con `pytesseract.image_to_data`), eliminando el riesgo de corrimiento.
 6. **Extraer AZI** en el OCR → análisis de sector (pendiente Nevados).
 7. (Futuro) Explorar `MSI/OLI` de MIROVA como evidencia adicional Sentinel-2/Landsat.
+
+---
+
+## F. Benchmark de OCR (2026-06-11, Tesseract 5.4.0 local, 33 Latest10NTI vivas)
+
+| Método | Pares fecha↔VRP extraídos | Inmune a desalineamiento |
+|---|---|---|
+| Actual (página completa, emparejado por orden) | 329/330 | ❌ (si pierde 1 fecha, corre todos los pares siguientes) |
+| Por celdas v1 (cortes fijos) | 246/330 | ✅ (fallo: coordenadas de corte) |
+| Por celdas v2 (posicional `image_to_data`) | 316/330 | ✅ (fallo: ruido "J/un", "202607:") |
+| **Por celdas v3 (posicional + normalización)** | **330/330** | ✅ |
+
+- v3 = OCR de las tiras de fecha/VRP con `image_to_data` (psm 6, upscale 3×), asignación
+  de palabras a columnas por posición X (grilla 2×5 de 170 px), normalización de ruido
+  (`J/un`→`Jun`, `202607:`→`2026 07:`), regex estricta. Escala con `h/600` → absorbe 850×596.
+- Validación cruzada actual vs v3 hoy: **0 discrepancias** fecha↔VRP (no hay corrupción
+  silenciosa activa en este momento; el riesgo del método actual es latente, no actual).
+- Diseño recomendado: **v3 como extractor primario + método actual como fallback** si v3
+  devuelve <10 pares; loguear cuando difieren.
