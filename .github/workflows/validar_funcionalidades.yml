@@ -7,7 +7,8 @@ on:
       - 'ocr_utils.py'
       - 'scraper_ocr.py'
       - 'scraper.py'
-      - 'config_sentinel2.py'
+      - 'volcanes.py'
+      - 'tests/**'
   pull_request:
     branches: [ main ]
 
@@ -145,37 +146,30 @@ jobs:
           
           echo "✅ Función detectar_centro_estrella_verde presente"
   
-  validar-tupungatito:
+  validar-fuente-unica:
     runs-on: ubuntu-latest
-    name: ✅ Validar Tupungatito
-    
+    name: ✅ Validar volcanes.py (fuente única)
+
     steps:
       - uses: actions/checkout@v5
-      
-      - name: Verificar Tupungatito en configuraciones
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Test de equivalencia (golden master)
         run: |
-          echo "🔍 Verificando Tupungatito (357010)..."
-          
-          # Scraper principal
-          if grep -q "357010.*Tupungatito" scraper.py; then
-            echo "✅ Tupungatito en scraper.py"
-          else
-            echo "⚠️  ADVERTENCIA: Tupungatito no encontrado en scraper.py"
-          fi
-          
-          # Scraper OCR
-          if grep -q "357010.*Tupungatito" scraper_ocr.py; then
-            echo "✅ Tupungatito en scraper_ocr.py"
-          else
-            echo "⚠️  ADVERTENCIA: Tupungatito no encontrado en scraper_ocr.py"
-          fi
-          
-          # Límites Y
-          if grep -q "Tupungatito.*Y_LIMITE_PX" ocr_utils.py; then
-            echo "✅ Tupungatito con límites Y en ocr_utils.py"
-          else
-            echo "⚠️  ADVERTENCIA: Tupungatito sin límites Y"
-          fi
+          echo "🔍 Verificando que las estructuras derivadas de volcanes.py"
+          echo "   sean idénticas al estado previo (no hay regresión)..."
+          python tests/test_volcanes_equivalencia.py
+
+      - name: Verificar Tupungatito 7 km y 11 volcanes
+        run: |
+          python -c "from volcanes import VOLCANES; \
+          v = VOLCANES['357010']; \
+          assert v['nombre'] == 'Tupungatito' and v['limite_km'] == 7.0, v; \
+          assert len(VOLCANES) == 11, len(VOLCANES); \
+          print('✅ Tupungatito', v['limite_km'], 'km | 11 volcanes')"
   
   validar-imports:
     runs-on: ubuntu-latest

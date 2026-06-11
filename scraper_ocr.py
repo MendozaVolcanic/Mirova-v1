@@ -35,20 +35,8 @@ from ocr_utils import (
 # CONFIGURACIÓN
 # =========================
 
-VOLCANES_CONFIG = {
-    "355100": {"nombre": "Lascar", "id_mirova": "Lascar"},
-    "355120": {"nombre": "Lastarria", "id_mirova": "Lastarria"},
-    "355030": {"nombre": "Isluga", "id_mirova": "Isluga"},
-    "357120": {"nombre": "Villarrica", "id_mirova": "Villarrica"},
-    "357110": {"nombre": "Llaima", "id_mirova": "Llaima"},
-    "357070": {"nombre": "Nevados de Chillan", "id_mirova": "ChillanNevadosde"},
-    "357090": {"nombre": "Copahue", "id_mirova": "Copahue"},
-    "357150": {"nombre": "Puyehue-Cordon Caulle", "id_mirova": "PuyehueCordonCaulle"},
-    "358041": {"nombre": "Chaiten", "id_mirova": "Chaiten"},
-    "357040": {"nombre": "PlanchonPeteroa", "id_mirova": "PlanchonPeteroa"},
-    # ===== NUEVO: TUPUNGATITO =====
-    "357010": {"nombre": "Tupungatito", "id_mirova": "Tupungatito"}
-}
+# Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
+from volcanes import VOLCANES_CONFIG
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 

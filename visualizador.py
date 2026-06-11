@@ -11,7 +11,8 @@ ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
 
-VOLCANES = ["Tupungatito", "Isluga", "Lascar", "Lastarria", "PlanchonPeteroa", "Nevados de Chillan", "Copahue", "Llaima", "Villarrica", "Puyehue-Cordon Caulle", "Chaiten"]
+# Lista de volcanes y datos del dashboard desde la fuente única (volcanes.py)
+from volcanes import LISTA_VOLCANES as VOLCANES, DASHBOARD
 
 MAPA_SIMBOLOS = {"MODIS": "triangle-up", "VIIRS375": "square", "VIIRS750": "circle", "VIIRS": "circle"}
 
@@ -454,7 +455,12 @@ document.addEventListener('DOMContentLoaded', function() {
     with open("monitoreo_satelital/estado_sistema.json", "w") as f:
         import json
         json.dump(estado, f, indent=2)
-    
+
+    # Generar volcanes.js para el dashboard desde la fuente única (volcanes.py)
+    import json
+    with open("volcanes.js", "w", encoding="utf-8") as f:
+        f.write("window.VOLCANES_DASHBOARD = " + json.dumps(DASHBOARD, ensure_ascii=False) + ";\n")
+
     print(f"\n✅ Gráficos generados para {len(VOLCANES)} volcanes")
 
 if __name__ == "__main__":

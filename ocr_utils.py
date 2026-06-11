@@ -50,6 +50,7 @@ import pytz
 import re
 import os
 from PIL import Image
+from volcanes import LIMITES_Y_COORDENADAS  # fuente única de verdad
 
 # ========================================
 # NUEVA V27: CONTEXTO LATEST.PHP
@@ -90,17 +91,7 @@ def obtener_contexto_latest(volcan_nombre, sensor, eventos_ocr, df_consolidado):
             'eventos_cercanos': []
         }
     
-    # Importar LIMITES_Y_COORDENADAS (definido más abajo)
-    # Por ahora, usar un dict local para evitar circular import
-    limites_default = {
-        'Lastarria': 3.0, 'PlanchonPeteroa': 3.0, 'Peteroa': 3.0,
-        'Copahue': 4.0, 'Lascar': 5.0, 'Isluga': 5.0,
-        'Nevados de Chillan': 5.0, 'ChillanNevadosde': 5.0,
-        'Llaima': 5.0, 'Villarrica': 5.0, 'Chaiten': 5.0,
-        'Puyehue-Cordon Caulle': 20.0, 'PuyehueCordonCaulle': 20.0,
-        'Tupungatito': 7.0
-    }
-    limite_km = limites_default.get(volcan_nombre, 5.0)
+    limite_km = LIMITES_Y_COORDENADAS.get(volcan_nombre, {}).get('LIMITE_KM', 5.0)
     
     # Ventana temporal: ±10 minutos de cada evento OCR
     ventana_segundos = 600  # 10 minutos
@@ -151,24 +142,9 @@ def obtener_contexto_latest(volcan_nombre, sensor, eventos_ocr, df_consolidado):
     }
 
 # ========================================
-# COORDENADAS DE LÍMITES
+# COORDENADAS DE LÍMITES → centralizado en volcanes.py
+# (LIMITES_Y_COORDENADAS se importa arriba; incluye Tupungatito 7 km y los alias)
 # ========================================
-LIMITES_Y_COORDENADAS = {
-    'Lastarria': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
-    'PlanchonPeteroa': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
-    'Peteroa': {'Y_LIMITE_PX': 272, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 3.0},
-    'Copahue': {'Y_LIMITE_PX': 266, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 4.0},
-    'Lascar': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Isluga': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Nevados de Chillan': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'ChillanNevadosde': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Llaima': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Villarrica': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Chaiten': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 5.0},
-    'Puyehue-Cordon Caulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
-    'PuyehueCordonCaulle': {'Y_LIMITE_PX': 148, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 20.0},
-    'Tupungatito': {'Y_LIMITE_PX': 257, 'Y_EJE_X_PX': 335, 'LIMITE_KM': 7.0}  # =====CAMBIO V24: 5→7 km=====
-}
 
 # ========================================
 # ROI TEMPORAL (RESTAURADO V17)

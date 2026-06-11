@@ -11,20 +11,8 @@ import numpy as np
 # CONFIGURACIÓN GENERAL
 # =========================
 
-VOLCANES_CONFIG = {
-    "355100": {"nombre": "Lascar", "id_mirova": "Lascar", "limite_km": 5.0},
-    "355120": {"nombre": "Lastarria", "id_mirova": "Lastarria", "limite_km": 3.0},
-    "355030": {"nombre": "Isluga", "id_mirova": "Isluga", "limite_km": 5.0},
-    "357120": {"nombre": "Villarrica", "id_mirova": "Villarrica", "limite_km": 5.0},
-    "357110": {"nombre": "Llaima", "id_mirova": "Llaima", "limite_km": 5.0},
-    "357070": {"nombre": "Nevados de Chillan", "id_mirova": "ChillanNevadosde", "limite_km": 5.0},
-    "357090": {"nombre": "Copahue", "id_mirova": "Copahue", "limite_km": 4.0},
-    "357150": {"nombre": "Puyehue-Cordon Caulle", "id_mirova": "PuyehueCordonCaulle", "limite_km": 20.0},
-    "358041": {"nombre": "Chaiten", "id_mirova": "Chaiten", "limite_km": 5.0},
-    "357040": {"nombre": "PlanchonPeteroa", "id_mirova": "PlanchonPeteroa", "limite_km": 3.0},
-    # ===== NUEVO: TUPUNGATITO =====
-    "357010": {"nombre": "Tupungatito", "id_mirova": "Tupungatito", "limite_km": 7.0}
-}
+# Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
+from volcanes import VOLCANES_CONFIG
 
 CARPETA_PRINCIPAL = "monitoreo_satelital"
 RUTA_IMAGENES_BASE = os.path.join(CARPETA_PRINCIPAL, "imagenes_satelitales")

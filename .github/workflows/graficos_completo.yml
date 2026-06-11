@@ -60,6 +60,7 @@ jobs:
           git add monitoreo_satelital/v_html/*.html 2>/dev/null || true
           git add monitoreo_satelital/v_html_log/*.html 2>/dev/null || true
           git add monitoreo_satelital/estado_sistema.json 2>/dev/null || true
+          git add volcanes.js 2>/dev/null || true
           
           if ! git diff --quiet --staged; then
             git commit -m "📊 Generación automática de gráficos"
