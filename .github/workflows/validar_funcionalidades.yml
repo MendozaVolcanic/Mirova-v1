@@ -146,6 +146,34 @@ jobs:
           
           echo "✅ Función detectar_centro_estrella_verde presente"
   
+  tests-pytest:
+    runs-on: ubuntu-latest
+    name: 🧪 Tests de comportamiento (pytest)
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Instalar Tesseract (para tests de OCR)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest==9.0.3
+
+      - name: Ejecutar suite
+        run: |
+          echo "🧪 Suite con imágenes fixture reales (geometría, estrella v2,"
+          echo "   clasificación, OCR espacial, escala Coppola, fuente única)..."
+          python -m pytest tests/ -v
+
   validar-fuente-unica:
     runs-on: ubuntu-latest
     name: ✅ Validar volcanes.py (fuente única)
