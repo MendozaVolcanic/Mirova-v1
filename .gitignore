@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Carpetas de trabajo locales (auditorías, temporales)
+_audit/
+_live/
+_diag_tmp/
+
+# Temporales del OCR (se limpian en cada corrida)
+monitoreo_satelital/ocr_temp/
+
+# Backups manuales sueltos (mantener fuera del historial)
+monitoreo_satelital/*al [0-9]*.csv

@@ -103,7 +103,7 @@ jobs:
             while [ $retry_count -lt $max_retries ]; do
               echo "Intento $((retry_count + 1)) de push..."
               
-              if git pull origin main --rebase -X ours; then
+              if git pull origin main --rebase --autostash -X ours; then
                 echo "Pull exitoso, intentando push..."
               else
                 echo "⚠️ Pull falló, continuando..."

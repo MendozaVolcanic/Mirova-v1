@@ -44,7 +44,9 @@ jobs:
           git add monitoreo_satelital/
           if ! git diff --quiet --staged; then
             git commit -m "Auto: Sincronización de datos e imágenes"
-            git pull origin main --rebase -X ours
+            # --autostash: tolera modificaciones no stageadas (ej. archivos
+            # regenerados por el runner) que harían fallar el rebase
+            git pull origin main --rebase --autostash -X ours
             git push origin main
           else
             echo "No hay cambios nuevos para subir."
