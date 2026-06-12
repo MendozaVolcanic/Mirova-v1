@@ -1,5 +1,19 @@
 """
-OCR_UTILS.PY V28 - Extracción espacial por celdas (grilla 2x5)
+OCR_UTILS.PY V29 - Estrella v2 (verde+gris) + geometría medida px<->km
+BASE: V28 (extracción espacial) + estrella gris + km medidos por imagen
+
+CAMBIO V29 (2026-06-12, ver tasks/AUDITORIA_OCR_EMPIRICA_2026-06.md §G):
+- medir_geometria_panel(): detecta las espinas 25km/0km del panel Last Month
+  en cada imagen (576/576 validadas) -> y_a_km() convierte píxel a km medidos.
+  La clasificación dentro/fuera compara km contra limite_km (+0.15 tolerancia);
+  Y_LIMITE_PX queda solo como fallback.
+- detectar_estrella_gris() + detectar_estrella_v2(): la estrella gris es una
+  detección débil real (VRP 0.02-0.05 MW, sub-umbral del banner MIROVA).
+  Verde -> confianza alta (sin cambio) | Gris -> confianza media.
+- leer_header_anomalia(): valida en cruzado el color de la estrella con la
+  caja "Thermal anomaly" (consistencia histórica 100%).
+
+V28 - Extracción espacial por celdas (grilla 2x5)
 BASE: V27 (contexto latest.php) + NUEVO extractor espacial
 
 CAMBIO V28 (2026-06-11, ver tasks/AUDITORIA_OCR_EMPIRICA_2026-06.md):
@@ -548,7 +562,15 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre, contexto_la
         
         img_rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
         height, width = img_rgb.shape[:2]
-        
+
+        # =====V29: medir geometría del panel (px<->km) para esta imagen=====
+        geometria_panel = medir_geometria_panel(cv2.cvtColor(img_dist, cv2.COLOR_BGR2GRAY))
+        if geometria_panel:
+            print(f"   📏 V29 geometría medida: techo(25km)=y{geometria_panel[0]}, eje(0km)=y{geometria_panel[1]}")
+        else:
+            print(f"   ⚠️ V29: geometría no medible -> se usará calibración fija")
+        # ====================================================================
+
         # ========================================
         # ROI TEMPORAL (PRESERVADO V17)
         # ========================================
@@ -664,6 +686,7 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre, contexto_la
         # ========================================
         for i, evento in enumerate(eventos):
             # Datos globales (COMPATIBILIDAD V17)
+            evento['geometria_panel'] = geometria_panel  # V29: px<->km medido
             evento['color_punto'] = color_dominante
             evento['pixeles_rojos'] = int(pixeles_rojos)
             evento['pixeles_negros'] = int(pixeles_negros)
@@ -749,37 +772,183 @@ def detectar_centro_estrella_verde(img_dist):
         return None
 
 
+# ========================================
+# NUEVO V29: GEOMETRÍA MEDIDA DEL PANEL (px <-> km)
+# ========================================
+# PROBLEMA: la clasificación dentro/fuera usaba Y_LIMITE_PX calibrado a mano por
+# volcán, asumiendo imagen 850x600. MIROVA entrega variantes (850x596, espina
+# superior clara) y un error de calibración ya costó eventos (Tupungatito).
+# SOLUCIÓN: medir en CADA imagen las dos espinas del panel "Last Month"
+# (techo = 25 km, eje = 0 km) y convertir píxel->km con esa regla medida.
+# Validado 2026-06-12: 576/576 imágenes históricas+vivas detectadas
+# (600px: techo 110/eje 295; 596px: 109/293 -> ~7.4 px/km en todas).
+# La calibración fija de volcanes.py queda como fallback si la medición falla.
+# Tolerancia +0.15 km (~1 px) preserva los casos borde del método anterior.
+# ========================================
+
+TOLERANCIA_KM = 0.15  # ~1 px de ruido de render/centroide
+
+
+def medir_geometria_panel(img_gray):
+    """
+    V29: Detecta (y_techo_25km, y_eje_0km) del panel Last Month.
+    El eje siempre se renderiza oscuro (<170); el techo a veces claro (~227),
+    por eso usa umbral relativo (<235). Devuelve (techo, eje) o None.
+    """
+    try:
+        h = img_gray.shape[0]
+        sy = h / 600.0
+
+        def filas_espina(y_lo, y_hi, umbral):
+            v = img_gray[y_lo:y_hi, 300:790] < umbral
+            need = int(0.93 * v.shape[1])
+            return [y_lo + i for i, c in enumerate(v.sum(axis=1)) if c >= need]
+
+        def grupos_de(filas):
+            if not filas:
+                return []
+            gs = [[filas[0]]]
+            for y in filas[1:]:
+                if y - gs[-1][-1] <= 2:
+                    gs[-1].append(y)
+                else:
+                    gs.append([y])
+            return [int(np.mean(gr)) for gr in gs]
+
+        f_eje = filas_espina(int(240 * sy), int(340 * sy), 170)
+        if not f_eje:
+            return None
+        eje = grupos_de(f_eje)[-1]
+        candidatos = grupos_de(filas_espina(int(70 * sy), eje - int(150 * sy), 235))
+        # el techo correcto es el grupo con separación ~185*sy del eje
+        validos = [t for t in candidatos if 160 * sy < eje - t < 210 * sy]
+        if not validos:
+            return None
+        techo = min(validos, key=lambda t: abs((eje - t) - 185 * sy))
+        return techo, eje
+    except Exception:
+        return None
+
+
+def y_a_km(y, geometria):
+    """Convierte fila de píxel a km usando la geometría medida (panel 0-25 km)."""
+    techo, eje = geometria
+    return (eje - y) * 25.0 / (eje - techo)
+
+
+def detectar_estrella_gris(img_dist, sy=1.0):
+    """
+    V29: Detecta la estrella GRIS (detección débil sub-umbral del banner MIROVA,
+    VRP 0.02-0.05 MW según cruce con latest.php — ver auditoría §G).
+    Relleno plateado g 150-225, S<60; el contorno oscuro fragmenta el relleno a
+    ~49 px², por eso umbral área >=30 y SIN morfología. Zona: junto a la línea
+    punteada del "ahora" (x 660-800). Devuelve y_centro o None.
+    """
+    try:
+        rgb = cv2.cvtColor(img_dist, cv2.COLOR_BGR2RGB)
+        hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+        gg = cv2.cvtColor(img_dist, cv2.COLOR_BGR2GRAY)
+        y1, y2, x1, x2 = int(108 * sy), int(302 * sy), 660, 800
+        zg, zs = gg[y1:y2, x1:x2], hsv[y1:y2, x1:x2, 1]
+        mask = ((zg > 150) & (zg < 225) & (zs < 60)).astype(np.uint8) * 255
+        cont, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        mejores = []
+        for c in cont:
+            a = cv2.contourArea(c)
+            if a < 30 or a > 500:
+                continue
+            x, y, w, h = cv2.boundingRect(c)
+            if not (9 <= w <= 30 and 9 <= h <= 30 and 0.5 < w / h < 2.0):
+                continue
+            M = cv2.moments(c)
+            if M['m00'] == 0:
+                continue
+            mejores.append((a, y1 + int(M['m01'] / M['m00'])))
+        return max(mejores)[1] if mejores else None
+    except Exception:
+        return None
+
+
+def detectar_estrella_v2(img_dist, sy=1.0):
+    """
+    V29: estrella verde (detector V16 preservado) o gris (nueva).
+    Devuelve (color, y_centro) | (None, None).
+    """
+    cy = detectar_centro_estrella_verde(img_dist)
+    if cy is not None:
+        return 'verde', cy
+    cy = detectar_estrella_gris(img_dist, sy)
+    if cy is not None:
+        return 'gris', cy
+    return None, None
+
+
+def leer_header_anomalia(img_dist, sy=1.0):
+    """
+    V29: Lee el color de la caja "Thermal anomaly" del header.
+    Devuelve 'activa' (caja verde) o 'none'. Validación cruzada del color de
+    estrella: consistencia 100% en 464 imágenes (451 verde<->activa, 13 gris<->none).
+    """
+    try:
+        caja = img_dist[int(48 * sy):int(76 * sy), 460:760]
+        hsv = cv2.cvtColor(cv2.cvtColor(caja, cv2.COLOR_BGR2RGB), cv2.COLOR_RGB2HSV)
+        verdes = cv2.inRange(hsv, (40, 80, 80), (80, 255, 255)).sum() / 255
+        return 'activa' if verdes > 500 else 'none'
+    except Exception:
+        return 'desconocido'
+
+
 def validar_con_estrella_verde(img_dist, volcan_nombre):
     """
-    V16: Valida si estrella verde está dentro del límite
-    Compatible con V17 (puede usarse como FASE 2)
+    V29: Valida con estrella VERDE o GRIS usando km medidos en la imagen.
+    - Verde = anomalía activa (banner) -> confianza alta (sin cambio vs V16)
+    - Gris  = detección débil sub-umbral (VRP 0.02-0.05 MW) -> confianza media
+    - Posición de ambas = distancia de la última detección (error mediano
+      0.06 km verde / 0.15 km gris, n=459; auditoría §G)
+    Fallback: si no se puede medir la geometría, usa Y_LIMITE_PX (calibración fija).
     """
     if volcan_nombre not in LIMITES_Y_COORDENADAS:
         return None, None, f"Volcán '{volcan_nombre}' sin coordenadas calibradas"
-    
+
     coords = LIMITES_Y_COORDENADAS[volcan_nombre]
-    
-    y_estrella = detectar_centro_estrella_verde(img_dist)
-    
+    limite_km = coords['LIMITE_KM']
+    sy = img_dist.shape[0] / 600.0
+
+    color, y_estrella = detectar_estrella_v2(img_dist, sy)
+    header = leer_header_anomalia(img_dist, sy)
+
     if y_estrella is None:
-        return None, None, "No se detectó estrella verde"
-    
-    y_limite = coords['Y_LIMITE_PX']
-    y_eje_x = coords['Y_EJE_X_PX']
-    
-    # REGLA: Si Y estrella >= Y límite → DENTRO
-    if y_estrella >= y_limite:
-        if y_estrella >= y_eje_x:
-            dist_km = 0.0
-        else:
-            proporcion = (y_eje_x - y_estrella) / (y_eje_x - y_limite)
-            dist_km = proporcion * coords['LIMITE_KM']
-        
-        nota = f"Estrella en Y={y_estrella} (dentro límite Y={y_limite}, dist≈{dist_km:.2f} km)"
-        return 'alta', 'ALERTA_TERMICA_OCR', nota
+        if header == 'activa':
+            # banner dice anomalía pero no encontramos la estrella -> revisar
+            return None, None, "Sin estrella detectada PERO header=ACTIVA (revisar detector)"
+        return None, None, "Sin estrella (última medición sin detección, header=NONE)"
+
+    # validación cruzada estrella<->header (consistencia esperada 100%)
+    esperado = 'activa' if color == 'verde' else 'none'
+    aviso_header = ""
+    if header != 'desconocido' and header != esperado:
+        aviso_header = f" ⚠️header={header}≠{esperado}"
+        print(f"      ⚠️ V29: color estrella ({color}) no coincide con header ({header})")
+
+    # px -> km con geometría MEDIDA; fallback a calibración fija
+    geometria = medir_geometria_panel(cv2.cvtColor(img_dist, cv2.COLOR_BGR2GRAY))
+    if geometria:
+        dist_km = max(0.0, y_a_km(y_estrella, geometria))
+        dentro = dist_km <= limite_km + TOLERANCIA_KM
+        base_nota = (f"Estrella {color} en Y={y_estrella} -> {dist_km:.2f} km "
+                     f"(límite {limite_km} km, geometría medida){aviso_header}")
     else:
-        nota = f"Estrella en Y={y_estrella} (fuera límite Y={y_limite})"
-        return 'baja', 'FALSO_POSITIVO_OCR', nota
+        y_limite = coords['Y_LIMITE_PX'] if img_dist.shape[0] == 600 else int(coords['Y_LIMITE_PX'] * sy)
+        dentro = y_estrella >= y_limite
+        base_nota = (f"Estrella {color} en Y={y_estrella} vs límite Y={y_limite} "
+                     f"(fallback calibración fija){aviso_header}")
+
+    if dentro:
+        if color == 'verde':
+            return 'alta', 'ALERTA_TERMICA_OCR', base_nota
+        return 'media', 'ALERTA_TERMICA_OCR', base_nota + " | detección débil sub-umbral MIROVA"
+    else:
+        return 'baja', 'FALSO_POSITIVO_OCR', base_nota + " | FUERA de límite"
 
 
 def clasificar_confianza(evento, img_dist_path, volcan_nombre):
@@ -846,23 +1015,36 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
     if grupo_info:
         y_absoluto = grupo_info['y_absoluto']
         area_grupo = grupo_info['area']
-        
+
         limites = LIMITES_Y_COORDENADAS.get(volcan_nombre, {})
         y_limite_px = limites.get('Y_LIMITE_PX', 257)
         y_eje_x = limites.get('Y_EJE_X_PX', 295)  # eje 0 km real (auditoría 2026-06)
         limite_km = limites.get('LIMITE_KM', 5.0)
-        
-        if y_absoluto >= y_limite_px:
+
+        # =====V29: dentro/fuera por km MEDIDOS en la imagen (si hay geometría)=====
+        geometria = evento.get('geometria_panel')
+        if geometria:
+            km_grupo = max(0.0, y_a_km(y_absoluto, geometria))
+            dentro_limite = km_grupo <= limite_km + TOLERANCIA_KM
+        else:
+            km_grupo = None
+            dentro_limite = y_absoluto >= y_limite_px  # fallback calibración fija
+        # ==========================================================================
+
+        if dentro_limite:
             # DENTRO del límite - VRP REAL
-            # Distancia desde el cráter: 0 km en el eje (y_eje_x), limite_km en la línea
-            # de límite (y_limite_px). Fórmula corregida 2026-06 (antes estaba invertida).
-            distancia_aprox = ((y_eje_x - y_absoluto) / (y_eje_x - y_limite_px)) * limite_km
+            if km_grupo is not None:
+                distancia_aprox = km_grupo
+            else:
+                # Distancia desde el cráter: 0 km en el eje (y_eje_x), limite_km en la
+                # línea de límite (y_limite_px). Corregida 2026-06 (estaba invertida).
+                distancia_aprox = ((y_eje_x - y_absoluto) / (y_eje_x - y_limite_px)) * limite_km
             
+            metodo_dist = "geometría medida" if km_grupo is not None else "calibración fija"
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V26 (grupo {area_grupo} px²): Y={y_absoluto} >= {y_limite_px} ✅")
+            print(f"   🎯 FASE 1 V29 (grupo {area_grupo} px²): Y={y_absoluto} -> {distancia_aprox:.2f} km <= {limite_km} km ✅ ({metodo_dist})")
             print(f"      ✅ ALERTA_TERMICA_OCR: Grupo píxeles en Y={y_absoluto}")
-            print(f"         Área={area_grupo} px², dist≈{distancia_aprox:.2f} km")
-            
+
             return {
                 'guardar': True,
                 'guardar_imagenes': True,
@@ -870,15 +1052,17 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'confianza': 'alta',
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
-                'Metodo_Deteccion': 'grupo_pixeles_v26',
-                'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km)'
+                'Metodo_Deteccion': 'grupo_pixeles_v29',
+                'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km, {metodo_dist})'
             }
         else:
             # FUERA del límite - FALSO POSITIVO
+            detalle = (f"{km_grupo:.2f} km > {limite_km} km" if km_grupo is not None
+                       else f"Y={y_absoluto} < {y_limite_px}")
             print(f"   ═════════════════════════════════════════════════════════")
-            print(f"   🎯 FASE 1 V26 (grupo {area_grupo} px²): Y={y_absoluto} < {y_limite_px} ❌")
+            print(f"   🎯 FASE 1 V29 (grupo {area_grupo} px²): {detalle} ❌")
             print(f"      ❌ FALSO_POSITIVO: Grupo fuera límite")
-            
+
             return {
                 'guardar': False,
                 'guardar_imagenes': False,
@@ -886,7 +1070,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'confianza': 'baja',
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
-                'nota': f'Grupo fuera límite: Y={y_absoluto} < {y_limite_px}'
+                'nota': f'Grupo fuera límite: {detalle}'
             }
     
     # ========================================

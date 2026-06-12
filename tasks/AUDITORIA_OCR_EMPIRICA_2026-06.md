@@ -69,3 +69,50 @@
   silenciosa activa en este momento; el riesgo del método actual es latente, no actual).
 - Diseño recomendado: **v3 como extractor primario + método actual como fallback** si v3
   devuelve <10 pares; loguear cuando difieren.
+
+---
+
+## G. Semántica de la estrella RESUELTA con datos (2026-06-11, 543 hist + 33 vivas)
+
+Cruce: posición de estrella vs `latest.php` en el timestamp exacto del "Last Update"
+(leído por OCR de cada imagen). Detector gris corregido (umbral área ≥30, sin morfología).
+
+**Conclusión (corrige la interpretación preliminar de §A.1):**
+- La estrella (verde O gris) marca la **última medición CON detección (VRP>0)**;
+  su posición Y es la **distancia de esa detección**. Error mediano: verde 0.06 km
+  (n=446), gris 0.15 km (n=13) → la posición es confiable en ambos colores.
+- El **color** replica el banner "Thermal anomaly" de MIROVA con consistencia 100%
+  (451/451 verde⇔banner verde, 13/13 gris⇔banner NONE):
+  - 🟢 verde: VRP ≥ ~0.05 MW (mín verde = 0.05, mediana 0.35, máx 4.6)
+  - ⚪ gris: VRP 0.02–0.05 MW → **detección real pero sub-umbral** del banner
+- **Sin estrella** = la última medición no detectó nada (NaN) — no es un fallo.
+- Las 13 grises históricas estaban TODAS dentro del límite de su volcán: son
+  detecciones débiles reales de fondo térmico (0.02–0.05 MW), exactamente la señal
+  que la escala logarítmica del dashboard busca visibilizar.
+
+**Diseño v2 derivado:** FASE 2 debe aceptar ambos colores. Verde → confianza alta
+(sin cambio); gris → confianza media + nota "detección débil sub-umbral (~X MW)".
+El header "Thermal anomaly" se lee como validación cruzada del color.
+
+---
+
+## H. V29 implementada y validada (2026-06-12)
+
+**Geometría medida (reemplaza Y_LIMITE_PX como mecanismo primario):**
+- `medir_geometria_panel()`: detecta espinas 25km/0km por imagen. El eje siempre
+  se renderiza oscuro; el techo a veces claro (gris 227) — tercera variante de
+  render descubierta. Detección final: **576/576 (100%)**.
+- Clasificación dentro/fuera = `km_medidos <= limite_km + 0.15` (tolerancia ~1px).
+  Fallback automático a Y_LIMITE_PX si la medición falla.
+
+**Replay de validación (576 imágenes, nueva FASE 2 vs vieja):**
+| Caso | n | Resultado |
+|---|---|---|
+| Verde dentro | 447 | idéntico (alta/ALERTA) ✅ |
+| Verde fuera | 4 | idéntico (baja/FALSO) ✅ |
+| **Gris (antes invisible)** | **13** | **ahora media/ALERTA con km medidos** 🆕 |
+| Sin estrella | 112 | sin cambio |
+| Discrepancias con lógica vieja | **0** | equivalencia exacta |
+
+FASE 1 (grupos rojos) también usa km medidos vía `evento['geometria_panel']`.
+Header "Thermal anomaly" se lee como validación cruzada del color de estrella.
