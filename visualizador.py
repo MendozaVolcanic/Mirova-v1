@@ -6,7 +6,6 @@ import pytz
 from datetime import datetime, timedelta
 
 ARCHIVO_MAESTRO = "monitoreo_satelital/registro_vrp_maestro_publicable.csv"
-ARCHIVO_MAESTRO_COMPLETO = "monitoreo_satelital/registro_vrp_maestro.csv"
 ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
@@ -319,24 +318,9 @@ def procesar():
     if os.path.exists(ARCHIVO_MAESTRO):
         df = pd.read_csv(ARCHIVO_MAESTRO)
         print(f"📊 Leyendo {ARCHIVO_MAESTRO}: {len(df)} eventos")
-    elif os.path.exists(ARCHIVO_MAESTRO_COMPLETO):
-        df = pd.read_csv(ARCHIVO_MAESTRO_COMPLETO)
-        print(f"⚠️ Maestro publicable no existe, usando completo: {len(df)} eventos")
-        
-        if not df.empty:
-            antes = len(df)
-            
-            if 'Tipo_Registro' in df.columns:
-                tipos_ok = ['ALERTA_TERMICA', 'ALERTA_TERMICA_OCR', 'EVIDENCIA_DIARIA']
-                df = df[df['Tipo_Registro'].isin(tipos_ok)].copy()
-            
-            df = df[df['VRP_MW'] > 0].copy()
-            
-            if 'Confianza_Validacion' in df.columns:
-                df = df[df['Confianza_Validacion'] != 'baja'].copy()
-            
-            print(f"   Filtrado: {antes} → {len(df)} eventos")
     else:
+        # Fallback: positivos de latest.php (el "maestro completo" nunca existió;
+        # se eliminó ese fallback muerto en la limpieza 2026-06)
         df = pd.read_csv(ARCHIVO_POSITIVOS) if os.path.exists(ARCHIVO_POSITIVOS) else pd.DataFrame()
         if not df.empty:
             df['Confianza_Validacion'] = 'valido'

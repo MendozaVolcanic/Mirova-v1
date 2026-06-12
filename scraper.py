@@ -12,7 +12,7 @@ import numpy as np
 # =========================
 
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
-from volcanes import VOLCANES_CONFIG
+from volcanes import VOLCANES_CONFIG, clasificacion_mirova
 
 CARPETA_PRINCIPAL = "monitoreo_satelital"
 RUTA_IMAGENES_BASE = os.path.join(CARPETA_PRINCIPAL, "imagenes_satelitales")
@@ -39,18 +39,12 @@ def log_debug(mensaje, tipo="INFO"):
     try:
         with open(ARCHIVO_BITACORA, "a", encoding="utf-8") as f:
             f.write(f"[{ahora}] {mensaje}\n")
-    except:
-        pass
+    except OSError as e:
+        print(f"⚠️ No se pudo escribir bitácora: {e}")
 
 def obtener_clasificacion_mirova(vrp_mw, es_alerta):
-    if not es_alerta or vrp_mw <= 0:
-        return "NULO"
-    v = vrp_mw * 1e6
-    if v < 1e6: return "Muy Bajo"
-    if v < 1e7: return "Bajo"
-    if v < 1e8: return "Moderado"
-    if v < 1e9: return "Alto"
-    return "Muy Alto"
+    # Escala única del sistema (Coppola), centralizada en volcanes.py
+    return clasificacion_mirova(vrp_mw, es_alerta)
 
 # =========================
 # DESCARGA DE IMÁGENES
@@ -86,7 +80,8 @@ def descargar_v104(session, volcan_id, dt_utc, sensor_tabla, es_alerta_real):
                 if t in ["VRP", "Latest"]:
                     ruta_relativa = f"imagenes_satelitales/{nombre_v}/{f_c}/{filename}"
             time.sleep(0.3)
-        except:
+        except Exception as e:
+            log_debug(f"Descarga {t} de {nombre_v} falló: {e}", "ADVERTENCIA")
             continue
 
     return ruta_relativa
@@ -130,7 +125,9 @@ def procesar():
             volcan_nombre = conf["nombre"]
 
             dt_utc = datetime.strptime(cols[0].text.strip(), "%d-%b-%Y %H:%M:%S")
-            ts = int(dt_utc.timestamp())
+            # timestamp en UTC explícito (un datetime naive usa la TZ del sistema:
+            # correcto en CI/UTC, pero corría 3-4 h si se ejecuta local en Chile)
+            ts = int(dt_utc.replace(tzinfo=pytz.utc).timestamp())
 
             vrp = float(cols[3].text.strip())
             dist = float(cols[4].text.strip())

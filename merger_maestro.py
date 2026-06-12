@@ -16,7 +16,9 @@ import os
 CARPETA_PRINCIPAL = "monitoreo_satelital"
 DB_CONSOLIDADO = os.path.join(CARPETA_PRINCIPAL, "registro_vrp_consolidado.csv")
 DB_OCR = os.path.join(CARPETA_PRINCIPAL, "registro_vrp_ocr.csv")
-DB_MAESTRO = os.path.join(CARPETA_PRINCIPAL, "registro_vrp_maestro.csv")
+# Solo se publica el maestro PUBLICABLE (el "maestro completo" nunca se escribió;
+# la auditoría completa vive en consolidado + ocr — limpieza 2026-06)
+DB_PUBLICABLE = os.path.join(CARPETA_PRINCIPAL, "registro_vrp_maestro_publicable.csv")
 
 # Columnas del maestro
 COLUMNAS_MAESTRO = [
@@ -141,7 +143,6 @@ def merge():
         print(f"   Filtro confianza: {antes} → {len(df_publicable)} eventos")
     
     # Guardar SOLO publicable
-    DB_PUBLICABLE = DB_MAESTRO.replace('.csv', '_publicable.csv')
     df_publicable.to_csv(DB_PUBLICABLE, index=False)
     
     print(f"\n✅ CSV Maestro PUBLICABLE generado:")

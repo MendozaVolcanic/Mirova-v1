@@ -40,7 +40,8 @@ jobs:
         run: |
           git config --global user.name "VolcanoBot"
           git config --global user.email "bot@volcano.com"
-          git add -A
+          # add selectivo: solo lo que genera el scraper (no archivos sueltos)
+          git add monitoreo_satelital/
           if ! git diff --quiet --staged; then
             git commit -m "Auto: Sincronización de datos e imágenes"
             git pull origin main --rebase -X ours

@@ -90,7 +90,8 @@ jobs:
         run: |
           git config --global user.name "VolcanoOCR"
           git config --global user.email "ocr@volcano.com"
-          git add -A
+          # add selectivo: lo que generan OCR/merger/visualizador (no archivos sueltos)
+          git add monitoreo_satelital/ volcanes.js
           
           if ! git diff --quiet --staged; then
             git commit -m "🔬 OCR: Captura de eventos satelitales"

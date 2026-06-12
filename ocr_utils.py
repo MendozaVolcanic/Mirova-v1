@@ -63,7 +63,7 @@ PRESERVA V19:
 PRESERVA V17:
 - ROI TEMPORAL: (x: 0.8424-0.8635, y: 0.1817-0.4933)
 - Sistema 3 fases: rojos → estrella → negros
-- 14 volcanes en LIMITES_Y_COORDENADAS
+- 11 volcanes en LIMITES_Y_COORDENADAS (14 claves contando alias)
 - Filtro estrella verde: mask_grafico[100:, 250:]
 """
 

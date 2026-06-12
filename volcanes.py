@@ -60,6 +60,27 @@ def archivo_volcan(nombre):
     return nombre.replace(' ', '_').replace('-', '_')
 
 
+def clasificacion_mirova(vrp_mw, es_alerta=True):
+    """
+    Clasificación de intensidad ÚNICA del sistema (escala logarítmica de MIROVA,
+    Coppola et al. 2016): Muy Bajo <1 MW, Bajo <10, Moderado <100, Alto <1000,
+    Muy Alto >=1000. Antes scraper.py y scraper_ocr.py usaban escalas distintas
+    y un mismo evento recibía etiquetas diferentes según la fuente (unificado
+    2026-06, decisión: escala Coppola).
+    """
+    if not es_alerta or vrp_mw is None or vrp_mw <= 0:
+        return "NULO"
+    if vrp_mw < 1:
+        return "Muy Bajo"
+    if vrp_mw < 10:
+        return "Bajo"
+    if vrp_mw < 100:
+        return "Moderado"
+    if vrp_mw < 1000:
+        return "Alto"
+    return "Muy Alto"
+
+
 # ============================================================
 # ESTRUCTURAS DERIVADAS (compatibilidad con el código existente)
 # ============================================================

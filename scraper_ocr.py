@@ -36,7 +36,7 @@ from ocr_utils import (
 # =========================
 
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
-from volcanes import VOLCANES_CONFIG
+from volcanes import VOLCANES_CONFIG, clasificacion_mirova
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 
@@ -69,8 +69,8 @@ def descargar_imagen_temp(session, url, ruta_destino):
             with open(ruta_destino, 'wb') as f:
                 f.write(r.content)
             return True
-    except:
-        pass
+    except Exception as e:
+        print(f"  ⚠️ Descarga temporal falló ({url.split('/')[-1]}): {e}")
     return False
 
 
@@ -123,7 +123,8 @@ def descargar_imagenes_permanentes(session, volcan_id, sensor, evento, es_verifi
                 if t == "VRP":
                     ruta_relativa = f"imagenes_satelitales/{nombre_v_normalizado}/{f_c}/{filename}"
             time.sleep(0.3)
-        except:
+        except Exception as e:
+            print(f"  ⚠️ Descarga permanente falló ({t}): {e}")
             continue
     
     return ruta_relativa
@@ -288,15 +289,9 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             ruta_foto = "No descargada - Evento descartado"
             print(f"   💾 Imágenes NO descargadas (FALSO_POSITIVO)")
         
-        # Clasificación MIROVA basada en VRP
-        if vrp_mw < 0.2:
-            clasificacion_mirova = "Muy Bajo"
-        elif vrp_mw < 1.0:
-            clasificacion_mirova = "Bajo"
-        elif vrp_mw < 5.0:
-            clasificacion_mirova = "Medio"
-        else:
-            clasificacion_mirova = "Alto"
+        # Clasificación MIROVA: escala única del sistema (Coppola, en volcanes.py).
+        # Antes el OCR usaba una escala ad-hoc distinta a la de scraper.py.
+        etiqueta_mirova = clasificacion_mirova(vrp_mw, es_alerta=True)
         
         # Crear registro
         nuevo_evento = {
@@ -310,7 +305,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'VRP_MW': vrp_mw,
             'Distancia_km': 0.0,
             'Tipo_Registro': clasificacion['tipo_registro'],
-            'Clasificacion Mirova': clasificacion_mirova,
+            'Clasificacion Mirova': etiqueta_mirova,
             'Ruta Foto': ruta_foto,
             'Fecha_Proceso_GitHub': ahora_cl,
             'Ultima_Actualizacion': ahora_cl,

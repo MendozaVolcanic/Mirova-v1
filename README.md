@@ -59,7 +59,6 @@ Motor principal de captura que ejecuta ciclos cada **5 minutos**:
 
 * **Detección de Alerta:** Si se detecta **VRP > 0** dentro del radio de seguridad, el sistema descarga el set de evidencia completo.
 * **Soporte Tri-Sensor:** Captura simultánea de **MODIS**, **VIIRS 375m** y **VIIRS 750m** para el mismo evento.
-* **Respaldo en Calma:** En ausencia de alertas (VRP = 0), prioriza **VIIRS 375m** para una captura diaria de referencia.
 * **Auditoría de Procesamiento:** Detecta cuando MIROVA actualiza datos NRT a Standard y sincroniza el registro histórico.
 
 ### **2. Scraper Secundario OCR (Recuperación de Eventos Perdidos - V5.0)**
@@ -132,15 +131,19 @@ Ahora (V19):
 
 ## 🎯 Red de Vigilancia (Configuración OVDAS)
 
-Se aplica un filtro de precisión geográfica (**Geofencing**) calibrado en Photoshop para validar que las anomalías térmicas provengan del cráter activo:
+Se aplica un filtro de precisión geográfica (**Geofencing**). Desde V29 (jun 2026) la
+clasificación dentro/fuera usa la **geometría medida en cada imagen** (detección de las
+espinas 25 km/0 km del panel "Last Month" → conversión píxel↔km, validada en 576/576
+imágenes); los `Y_LIMITE_PX` calibrados quedan como **fallback**. Configuración única
+en [`volcanes.py`](volcanes.py):
 
-| Volcán | ID MIROVA | Límite (km) | Y_LIMITE_PX | Región |
+| Volcán | ID MIROVA | Límite (km) | Y_LIMITE_PX (fallback) | Región |
 | --- | --- | --- | --- | --- |
 | **Isluga** | 355030 | 5.0 | 257 | Tarapacá |
 | **Láscar** | 355100 | 5.0 | 257 | Antofagasta |
 | **Lastarria** | 355120 | 3.0 | 272 | Antofagasta |
-| **Tupungatito** | 357010 | 5.0 | 257 | Metropolitana |
-| **Peteroa** | 357040 | 3.0 | 272 | Maule |
+| **Tupungatito** | 357010 | 7.0 | 243 | Metropolitana |
+| **Planchón-Peteroa** | 357040 | 3.0 | 272 | Maule |
 | **N. de Chillán** | 357070 | 5.0 | 257 | Ñuble |
 | **Copahue** | 357090 | 4.0 | 266 | Biobío |
 | **Llaima** | 357110 | 5.0 | 257 | Araucanía |
@@ -243,6 +246,24 @@ Toda la información térmica utilizada en este proyecto es procesada y obtenida
 
 ## 📝 Changelog
 
+### **V5.1 (Jun 2026) - Fuente única + OCR espacial + estrella v2**
+- ➕ `volcanes.py`: fuente única de verdad de los 11 volcanes (config antes duplicada
+  en 6 lugares); el dashboard carga la lista desde `volcanes.js` generado.
+- ➕ OCR V28: extracción **espacial por celdas** de Latest10NTI (fecha↔VRP emparejados
+  por celda física de la grilla 2×5 → inmune a corrimientos; benchmark 330/330).
+- ➕ OCR V29: **geometría medida por imagen** (espinas 25/0 km → km reales, fallback a
+  px fijos) + **estrella v2** (verde=anomalía activa→alta; GRIS=detección débil
+  sub-umbral 0.02–0.05 MW→media) + lectura del header "Thermal anomaly".
+- 🔧 Calibración corregida: Tupungatito 257→243 px (7 km reales); eje 0 km = y295;
+  fórmula de distancia FASE 1 (estaba invertida).
+- 🔧 Datos: 65 registros huérfanos "Peteroa" migrados a "PlanchonPeteroa".
+- 🔧 Clasificación de intensidad unificada a la escala MIROVA/Coppola (antes el OCR
+  usaba una escala ad-hoc distinta).
+- 🔧 Infraestructura: Python 3.12 + acciones Node 24, deps fijadas + Dependabot,
+  deploy a Pages reparado (environment github-pages), `git add` selectivo en bots.
+- 📊 Validación empírica completa: 576 imágenes, 9.455 marcadores rojos vs límites
+  (0 violaciones), ROI vs línea del "ahora" (576/576). Ver `tasks/AUDITORIA_*.md`.
+
 ### **V5.0 (Feb 2026) - Detección Grupos Píxeles**
 - ➕ FASE 1 mejorada: Detección grupos separados (clustering)
 - ➕ Solución eventos superpuestos (ej: Lastarria 05:42 + 06:06)
@@ -271,15 +292,16 @@ Toda la información térmica utilizada en este proyecto es procesada y obtenida
 **Estas decisiones están protegidas por validación automática:**
 
 1. ✅ **ROI Temporal:** x: 0.8424-0.8635, y: 0.1817-0.4933
-2. ✅ **Sistema 3 Fases:** rojos → estrella → negros
-3. ✅ **Límites por Volcán:** 11 volcanes en LIMITES_Y_COORDENADAS
-4. ✅ **Filtro Estrella Verde:** mask_grafico[100:, 250:]
-5. ✅ **Filtro Fecha 24h:** VENTANA_HORAS = 24
-6. ✅ **import os:** Presente en ocr_utils.py
+2. ✅ **Sistema 3 Fases:** rojos → estrella (verde/gris) → negros
+3. ✅ **Fuente única `volcanes.py`:** 11 volcanes; test de equivalencia golden-master en CI
+4. ✅ **Tupungatito 7 km / y=243** (corregido jun 2026)
+5. ✅ **Filtro Estrella Verde:** mask_grafico[100:, 250:]
+6. ✅ **Filtro Fecha 24h:** VENTANA_HORAS = 24
+7. ✅ **import os:** Presente en ocr_utils.py
 
 ---
 
-**Versión:** 5.0
-**Última actualización:** Febrero 2026
+**Versión:** 5.1
+**Última actualización:** Junio 2026
 **Autor:** Nicolás Mendoza
 **Asistente:** Claude (Anthropic)
