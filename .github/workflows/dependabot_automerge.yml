@@ -1,0 +1,48 @@
+name: Dependabot auto-merge
+
+# Mergea automáticamente los PRs de Dependabot SOLO si el validador (con los 24
+# tests pytest) terminó en VERDE. El gate es el propio workflow_run: este job
+# únicamente se ejecuta tras una corrida exitosa de "Validar Funcionalidades
+# Críticas". No usa branch protection, así que NO interfiere con los push
+# directos a main de los bots (scraper cada 5 min, OCR cada hora).
+
+on:
+  workflow_run:
+    workflows: ["🛡️ Validar Funcionalidades Críticas"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    # Solo si: CI en verde + fue un PR + la rama es de Dependabot
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
+    steps:
+      - name: Mergear PR de Dependabot (CI verde)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          PR=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+                 --json number,author,title --jq '.[0]')
+          if [ -z "$PR" ] || [ "$PR" = "null" ]; then
+            echo "ℹ️ No hay PR abierto para $BRANCH (¿ya mergeado?)"; exit 0
+          fi
+          NUM=$(echo "$PR" | jq -r '.number')
+          AUTHOR=$(echo "$PR" | jq -r '.author.login')
+          TITLE=$(echo "$PR" | jq -r '.title')
+          # Defensa: confirmar que es Dependabot
+          case "$AUTHOR" in
+            dependabot*|app/dependabot) : ;;
+            *) echo "⛔ PR #$NUM no es de Dependabot (autor: $AUTHOR) — no se toca"; exit 0 ;;
+          esac
+          echo "✅ Validación en verde → mergeando PR #$NUM de Dependabot:"
+          echo "   $TITLE"
+          gh pr merge "$NUM" --repo "$REPO" --squash --delete-branch
