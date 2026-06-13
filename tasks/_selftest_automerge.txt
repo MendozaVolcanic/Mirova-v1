@@ -1,0 +1,2 @@
+Self-test del auto-merge de Dependabot (rama dependabot/ con autor NO-dependabot).
+Debe NO mergearse: el filtro de autor lo rechaza. Esta rama se borra tras el test.
