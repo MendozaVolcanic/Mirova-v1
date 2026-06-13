@@ -13,6 +13,7 @@ import cv2
 import io
 import contextlib
 
+import pytest
 import ocr_utils
 
 
@@ -90,28 +91,31 @@ def _validar(img, volcan):
 
 def test_validar_verde_dentro_alta(fixture_path):
     img = _cargar(fixture_path, "dist_estrella_verde_600.png")
-    conf, tipo, nota = _validar(img, "Tupungatito")
+    conf, tipo, nota, dist = _validar(img, "Tupungatito")
     assert (conf, tipo) == ("alta", "ALERTA_TERMICA_OCR")
     assert "geometría medida" in nota
+    # V29.2: la distancia aprox debe salir poblada y dentro del límite (7 km)
+    assert dist is not None and 0.0 <= dist <= 7.0 + 0.15
 
 
 def test_validar_gris_dentro_media(fixture_path):
     img = _cargar(fixture_path, "dist_estrella_gris_596.png")
-    conf, tipo, nota = _validar(img, "Isluga")
+    conf, tipo, nota, dist = _validar(img, "Isluga")
     assert (conf, tipo) == ("media", "ALERTA_TERMICA_OCR")
     assert "sub-umbral" in nota
+    assert dist is not None and 0.0 <= dist <= 5.0 + 0.15  # dentro del límite de Isluga
 
 
 def test_validar_verde_fuera_del_limite_falso(fixture_path):
     """La estrella de Tupungatito (~5.3 km) está FUERA para un límite de 3 km."""
     img = _cargar(fixture_path, "dist_estrella_verde_600.png")
-    conf, tipo, nota = _validar(img, "Lastarria")  # límite 3 km
+    conf, tipo, nota, dist = _validar(img, "Lastarria")  # límite 3 km
     assert (conf, tipo) == ("baja", "FALSO_POSITIVO_OCR")
 
 
 def test_validar_sin_estrella_devuelve_none(fixture_path):
     img = _cargar(fixture_path, "dist_sin_estrella_600.png")
-    conf, tipo, nota = _validar(img, "Lascar")
+    conf, tipo, nota, dist = _validar(img, "Lascar")
     assert conf is None and tipo is None
     assert "header=NONE" in nota
 
@@ -132,6 +136,8 @@ def test_fase1_grupo_dentro(fixture_path):
         r = ocr_utils.clasificar_confianza(_evento_con_grupo(280), None, "Lascar")
     assert r["tipo_registro"] == "ALERTA_TERMICA_OCR"
     assert r["guardar"] is True
+    # V29.2: distancia aprox poblada y coherente con la geometría (y=280 → ~2 km)
+    assert r["distancia_km"] == pytest.approx((295 - 280) * 25 / (295 - 110), abs=0.05)
 
 
 def test_fase1_grupo_fuera(fixture_path):

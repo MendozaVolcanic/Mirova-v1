@@ -908,7 +908,7 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
     Fallback: si no se puede medir la geometría, usa Y_LIMITE_PX (calibración fija).
     """
     if volcan_nombre not in LIMITES_Y_COORDENADAS:
-        return None, None, f"Volcán '{volcan_nombre}' sin coordenadas calibradas"
+        return None, None, f"Volcán '{volcan_nombre}' sin coordenadas calibradas", None
 
     coords = LIMITES_Y_COORDENADAS[volcan_nombre]
     limite_km = coords['LIMITE_KM']
@@ -920,8 +920,8 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
     if y_estrella is None:
         if header == 'activa':
             # banner dice anomalía pero no encontramos la estrella -> revisar
-            return None, None, "Sin estrella detectada PERO header=ACTIVA (revisar detector)"
-        return None, None, "Sin estrella (última medición sin detección, header=NONE)"
+            return None, None, "Sin estrella detectada PERO header=ACTIVA (revisar detector)", None
+        return None, None, "Sin estrella (última medición sin detección, header=NONE)", None
 
     # validación cruzada estrella<->header (consistencia esperada 100%)
     esperado = 'activa' if color == 'verde' else 'none'
@@ -938,17 +938,21 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
         base_nota = (f"Estrella {color} en Y={y_estrella} -> {dist_km:.2f} km "
                      f"(límite {limite_km} km, geometría medida){aviso_header}")
     else:
-        y_limite = coords['Y_LIMITE_PX'] if img_dist.shape[0] == 600 else int(coords['Y_LIMITE_PX'] * sy)
-        dentro = y_estrella >= y_limite
-        base_nota = (f"Estrella {color} en Y={y_estrella} vs límite Y={y_limite} "
-                     f"(fallback calibración fija){aviso_header}")
+        # Fallback: km aproximados con la calibración fija (eje 0 km y línea de límite)
+        y_eje = coords['Y_EJE_X_PX']; y_lim = coords['Y_LIMITE_PX']
+        y_lim_s = y_lim if img_dist.shape[0] == 600 else int(y_lim * sy)
+        y_eje_s = y_eje if img_dist.shape[0] == 600 else int(y_eje * sy)
+        dist_km = max(0.0, (y_eje_s - y_estrella) / (y_eje_s - y_lim_s) * limite_km) if y_eje_s != y_lim_s else 0.0
+        dentro = y_estrella >= y_lim_s
+        base_nota = (f"Estrella {color} en Y={y_estrella} -> {dist_km:.2f} km vs límite "
+                     f"Y={y_lim_s} (fallback calibración fija){aviso_header}")
 
     if dentro:
         if color == 'verde':
-            return 'alta', 'ALERTA_TERMICA_OCR', base_nota
-        return 'media', 'ALERTA_TERMICA_OCR', base_nota + " | detección débil sub-umbral MIROVA"
+            return 'alta', 'ALERTA_TERMICA_OCR', base_nota, dist_km
+        return 'media', 'ALERTA_TERMICA_OCR', base_nota + " | detección débil sub-umbral MIROVA", dist_km
     else:
-        return 'baja', 'FALSO_POSITIVO_OCR', base_nota + " | FUERA de límite"
+        return 'baja', 'FALSO_POSITIVO_OCR', base_nota + " | FUERA de límite", dist_km
 
 
 def clasificar_confianza(evento, img_dist_path, volcan_nombre):
@@ -1053,6 +1057,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
                 'Metodo_Deteccion': 'grupo_pixeles_v29',
+                'distancia_km': round(distancia_aprox, 2),
                 'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km, {metodo_dist})'
             }
         else:
@@ -1070,6 +1075,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'confianza': 'baja',
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
+                'distancia_km': round(km_grupo, 2) if km_grupo is not None else None,
                 'nota': f'Grupo fuera límite: {detalle}'
             }
     
@@ -1084,18 +1090,20 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
         img_dist = cv2.imread(img_dist_path)
         
         if img_dist is not None:
-            confianza_estrella, tipo_estrella, nota_estrella = validar_con_estrella_verde(
+            confianza_estrella, tipo_estrella, nota_estrella, dist_estrella = validar_con_estrella_verde(
                 img_dist, volcan_nombre
             )
         else:
             confianza_estrella = 'desconocido'
             tipo_estrella = 'DESCONOCIDO'
             nota_estrella = 'Error cargando Dist.png'
+            dist_estrella = None
     else:
         confianza_estrella = 'desconocido'
         tipo_estrella = 'DESCONOCIDO'
         nota_estrella = 'Imagen Dist.png no disponible'
-    
+        dist_estrella = None
+
     if confianza_estrella != 'desconocido':
         return {
             'guardar': tipo_estrella == 'ALERTA_TERMICA_OCR',
@@ -1105,6 +1113,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             'requiere_verificacion': False,
             'Color_Punto': evento.get('Color_Punto', 'sin_punto'),
             'Metodo_Deteccion': 'estrella_verde_v16',
+            'distancia_km': round(dist_estrella, 2) if dist_estrella is not None else None,
             'nota': nota_estrella
         }
     
