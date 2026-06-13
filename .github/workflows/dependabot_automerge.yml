@@ -1,10 +1,11 @@
 name: Dependabot auto-merge
 
-# Mergea automáticamente los PRs de Dependabot SOLO si el validador (con los 24
-# tests pytest) terminó en VERDE. El gate es el propio workflow_run: este job
-# únicamente se ejecuta tras una corrida exitosa de "Validar Funcionalidades
-# Críticas". No usa branch protection, así que NO interfiere con los push
-# directos a main de los bots (scraper cada 5 min, OCR cada hora).
+# Mergea automáticamente los PRs de Dependabot SOLO si:
+#   (1) el validador (24 tests pytest) terminó en VERDE, y
+#   (2) el salto de versión es patch o minor (los MAYORES se retienen para
+#       revisión manual, porque pueden cambiar comportamiento aunque pasen tests).
+# El gate de CI es el propio workflow_run. No usa branch protection, así que
+# NO interfiere con los push directos a main de los bots (scraper 5 min, OCR 1 h).
 
 on:
   workflow_run:
@@ -18,31 +19,65 @@ permissions:
 jobs:
   automerge:
     runs-on: ubuntu-latest
-    # Solo si: CI en verde + fue un PR + la rama es de Dependabot
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
       startsWith(github.event.workflow_run.head_branch, 'dependabot/')
     steps:
-      - name: Mergear PR de Dependabot (CI verde)
+      - name: Evaluar salto de versión y mergear si corresponde
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          PR=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
-                 --json number,author,title --jq '.[0]')
-          if [ -z "$PR" ] || [ "$PR" = "null" ]; then
-            echo "ℹ️ No hay PR abierto para $BRANCH (¿ya mergeado?)"; exit 0
-          fi
-          NUM=$(echo "$PR" | jq -r '.number')
-          AUTHOR=$(echo "$PR" | jq -r '.author.login')
-          TITLE=$(echo "$PR" | jq -r '.title')
-          # Defensa: confirmar que es Dependabot
-          case "$AUTHOR" in
-            dependabot*|app/dependabot) : ;;
-            *) echo "⛔ PR #$NUM no es de Dependabot (autor: $AUTHOR) — no se toca"; exit 0 ;;
-          esac
-          echo "✅ Validación en verde → mergeando PR #$NUM de Dependabot:"
-          echo "   $TITLE"
-          gh pr merge "$NUM" --repo "$REPO" --squash --delete-branch
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          repo = os.environ["REPO"]; branch = os.environ["BRANCH"]
+
+          def gh(*a):
+              return subprocess.run(["gh", *a], capture_output=True, text=True)
+
+          arr = json.loads(gh("pr", "list", "--repo", repo, "--head", branch,
+                              "--state", "open",
+                              "--json", "number,author,title,body").stdout or "[]")
+          if not arr:
+              print(f"ℹ️ No hay PR abierto para {branch} (¿ya resuelto?)"); raise SystemExit(0)
+          pr = arr[0]; num = pr["number"]; author = pr["author"]["login"]
+          title = pr["title"]; body = pr.get("body") or ""
+
+          # (defensa) solo PRs de Dependabot
+          if not author.startswith("dependabot"):
+              print(f"⛔ PR #{num} no es de Dependabot (autor: {author}) — no se toca"); raise SystemExit(0)
+
+          # Extraer pares "from X to Y" (título + cuerpo → cubre PRs agrupados)
+          pares = re.findall(r"from\s+v?([0-9][0-9A-Za-z.\-]*)\s+to\s+v?([0-9][0-9A-Za-z.\-]*)",
+                             title + "\n" + body)
+
+          def major(v):
+              try:
+                  return int(re.split(r"[.\-]", v)[0])
+              except Exception:
+                  return None
+
+          es_mayor = not pares  # si no se pudo parsear, retener por las dudas
+          detalle = []
+          for old, new in pares:
+              detalle.append(f"{old}→{new}")
+              mo, mn = major(old), major(new)
+              if mo is None or mn is None or mn > mo:
+                  es_mayor = True
+          print("Cambios:", ", ".join(detalle) or "(no parseado)")
+
+          if es_mayor:
+              print(f"⏸️ PR #{num}: salto MAYOR (o no parseable) → retenido para revisión manual")
+              gh("pr", "comment", str(num), "--repo", repo, "--body",
+                 "🤖 **Auto-merge retenido.** Este PR incluye un salto de versión **mayor** "
+                 "(o no se pudo determinar). Pasó los tests, pero un major puede cambiar "
+                 "comportamiento en código no cubierto. Revisar y mergear a mano si está OK.")
+              raise SystemExit(0)
+
+          print(f"✅ PR #{num}: patch/minor + CI en verde → mergeando (squash)")
+          r = gh("pr", "merge", str(num), "--repo", repo, "--squash", "--delete-branch")
+          print(r.stdout, r.stderr)
+          raise SystemExit(r.returncode)
+          PY
