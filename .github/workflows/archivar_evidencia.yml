@@ -1,0 +1,113 @@
+name: Archivar evidencia vieja
+
+# Migra la evidencia visual (imagenes_satelitales/<Volcan>/<FECHA>/) anterior a
+# una fecha de corte a un GitHub Release (que NO cuenta contra el tamaño del
+# repo) y la borra del working tree. Reduce el sitio publicado en Pages (límite
+# 1 GB) y el tamaño del checkout. NOTA: el historial .git conserva los archivos
+# (solo un rewrite lo reduce); esto evita el crecimiento del working tree y
+# preserva la evidencia accesible en el Release.
+# Disparo manual y deliberado (Actions → Run workflow).
+
+on:
+  workflow_dispatch:
+    inputs:
+      antes_de:
+        description: 'Archivar carpetas de fecha ANTERIORES a (YYYY-MM-DD)'
+        required: true
+        default: '2026-04-01'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: archivar-evidencia
+  cancel-in-progress: false
+
+jobs:
+  archivar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Seleccionar y comprimir carpetas anteriores al corte
+        id: zip
+        env:
+          ANTES_DE: ${{ inputs.antes_de }}
+        run: |
+          python3 - <<'PY'
+          import os, glob, zipfile, re
+          corte = os.environ["ANTES_DE"]
+          base = "monitoreo_satelital/imagenes_satelitales"
+          carpetas = []
+          for d in glob.glob(f"{base}/*/*"):
+              fecha = os.path.basename(d)
+              if re.fullmatch(r"\d{4}-\d{2}-\d{2}", fecha) and fecha < corte and os.path.isdir(d):
+                  carpetas.append(d)
+          carpetas.sort()
+          if not carpetas:
+              print(f"No hay carpetas anteriores a {corte}. Nada que archivar.")
+              open(os.environ["GITHUB_OUTPUT"], "a").write("hay=0\n")
+              raise SystemExit(0)
+          zip_name = f"evidencia_pre_{corte}.zip"
+          total = 0; nfiles = 0
+          with zipfile.ZipFile(zip_name, "w", zipfile.ZIP_DEFLATED) as z:
+              for c in carpetas:
+                  for root, _, files in os.walk(c):
+                      for fn in files:
+                          fp = os.path.join(root, fn)
+                          z.write(fp); total += os.path.getsize(fp); nfiles += 1
+          mb = total / 1024 / 1024
+          print(f"Carpetas: {len(carpetas)} | archivos: {nfiles} | {mb:.0f} MB -> {zip_name}")
+          out = open(os.environ["GITHUB_OUTPUT"], "a")
+          out.write(f"hay=1\nzip={zip_name}\nnfiles={nfiles}\nmb={mb:.0f}\ncarpetas={len(carpetas)}\n")
+          # guardar la lista de carpetas para el borrado
+          open("_a_borrar.txt", "w").write("\n".join(carpetas))
+          PY
+
+      - name: Crear Release y subir el ZIP
+        if: steps.zip.outputs.hay == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTES_DE: ${{ inputs.antes_de }}
+          ZIP: ${{ steps.zip.outputs.zip }}
+          NFILES: ${{ steps.zip.outputs.nfiles }}
+          MB: ${{ steps.zip.outputs.mb }}
+        run: |
+          TAG="evidencia-pre-${ANTES_DE}"
+          NOTES="Archivo de evidencia visual anterior a ${ANTES_DE}. ${NFILES} archivos, ${MB} MB. Generado automaticamente por archivar_evidencia.yml."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "$ZIP" --repo "$GITHUB_REPOSITORY" \
+              --title "Evidencia anterior a ${ANTES_DE}" --notes "$NOTES"
+          fi
+          echo "✅ ZIP subido al Release $TAG"
+
+      - name: Borrar las carpetas del working tree y commitear
+        if: steps.zip.outputs.hay == '1'
+        env:
+          ANTES_DE: ${{ inputs.antes_de }}
+          NFILES: ${{ steps.zip.outputs.nfiles }}
+          MB: ${{ steps.zip.outputs.mb }}
+        run: |
+          git config --global user.name "VolcanoArchiver"
+          git config --global user.email "archiver@volcano.com"
+          rm -f evidencia_pre_*.zip
+          while IFS= read -r d; do
+            [ -n "$d" ] && git rm -r -q "$d" || true
+          done < _a_borrar.txt
+          rm -f _a_borrar.txt
+          if git diff --quiet --staged; then
+            echo "Sin cambios para commitear"; exit 0
+          fi
+          git commit -m "chore(storage): archivar evidencia pre-${ANTES_DE} a Release (-${MB} MB working tree, ${NFILES} archivos)"
+          for i in 1 2 3 4 5; do
+            git pull origin main --rebase --autostash -X ours || true
+            if git push origin main; then echo "✅ push OK"; exit 0; fi
+            echo "reintento push $i..."; sleep $((i*3))
+          done
+          echo "❌ push falló tras reintentos"; exit 1
