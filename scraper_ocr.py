@@ -311,7 +311,9 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Volcan': nombre_v,
             'Sensor': sensor,
             'VRP_MW': vrp_mw,
-            'Distancia_km': 0.0,
+            # Distancia APROX desde el cráter (geometría medida del ROI; ±~0.2-0.3 km).
+            # Antes era 0.0 fijo aunque el clasificador ya la calculaba (V29.2).
+            'Distancia_km': round(clasificacion.get('distancia_km') or 0.0, 2),
             'Tipo_Registro': clasificacion['tipo_registro'],
             'Clasificacion Mirova': etiqueta_mirova,
             'Ruta Foto': ruta_foto,
@@ -323,7 +325,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Requiere_Verificacion': clasificacion['requiere_verificacion'],
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
             'Nota_Validacion': nota_final,
-            'Version_OCR': '29.1'  # V29.1: nota de precisión truncado VIIRS750/MODIS
+            'Version_OCR': '29.2'  # V29.2: distancia aprox persistida + nota precisión
         }
         
         eventos_nuevos.append(nuevo_evento)
