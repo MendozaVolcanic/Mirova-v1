@@ -257,38 +257,49 @@ def crear_grafico(df_v, v, modo_log=False):
     )
     
     if not df_v_30.empty:
+        # Helper: dirección horizontal de la etiqueta según posición en el eje X
+        def _ax_dir(fecha):
+            prop = (fecha - hace_30_dias).total_seconds() / 86400 / 30
+            return -60 if prop > 0.85 else (60 if prop < 0.15 else 0)
+
         max_r = df_v_30.loc[df_v_30['VRP_MW'].idxmax()]
-        y_pos = transform(max_r['VRP_MW'])
-        
         fecha_max = max_r['Fecha_UTC']
-        dias_desde_inicio = (fecha_max - hace_30_dias).total_seconds() / 86400
-        proporcion_x = dias_desde_inicio / 30
-        
-        if proporcion_x > 0.85:
-            ax = -60
-        elif proporcion_x < 0.15:
-            ax = 60
-        else:
-            ax = 0
-        
+
+        # Última lectura = evento VRP>0 más reciente del periodo
+        ult_r = df_v_30.loc[df_v_30['Fecha_UTC'].idxmax()]
+        fecha_ult = ult_r['Fecha_UTC']
+        # ¿La última lectura es también el máximo? (mismo punto → una sola etiqueta)
+        ult_es_max = (fecha_ult == fecha_max) and (ult_r['VRP_MW'] == max_r['VRP_MW'])
+
+        # --- Etiqueta MÁX (azul, un poco más grande) ---
         fig.add_annotation(
             x=fecha_max,
-            y=y_pos,
-            xref="x",
-            yref="y",
-            text=f"MÁX: {max_r['VRP_MW']:.2f} MW",
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1,
-            arrowwidth=1.5,
+            y=transform(max_r['VRP_MW']),
+            xref="x", yref="y",
+            text=(f"MÁX/ÚLTIMA: {max_r['VRP_MW']:.2f} MW" if ult_es_max
+                  else f"MÁX: {max_r['VRP_MW']:.2f} MW"),
+            showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.5,
             arrowcolor="white",
-            bgcolor="rgba(0,0,0,0.8)",
-            bordercolor="#58a6ff",
-            borderwidth=1,
-            font=dict(color="white", size=9),
-            ay=-40,
-            ax=ax
+            bgcolor="rgba(0,0,0,0.8)", bordercolor="#58a6ff", borderwidth=1.2,
+            font=dict(color="white", size=12),
+            ay=-42, ax=_ax_dir(fecha_max)
         )
+
+        # --- Etiqueta ÚLTIMA (naranja) — solo si es un punto distinto al MÁX ---
+        if not ult_es_max:
+            fig.add_annotation(
+                x=fecha_ult,
+                y=transform(ult_r['VRP_MW']),
+                xref="x", yref="y",
+                text=f"ÚLTIMA: {ult_r['VRP_MW']:.2f} MW",
+                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.5,
+                arrowcolor="white",
+                bgcolor="rgba(0,0,0,0.8)", bordercolor="#f0883e", borderwidth=1.2,
+                font=dict(color="white", size=12),
+                # offset vertical opuesto si MÁX y ÚLTIMA están cerca en X (evita solape)
+                ay=(40 if abs((fecha_ult - fecha_max).total_seconds()) < 3*86400 else -42),
+                ax=_ax_dir(fecha_ult)
+            )
     
     fig.update_layout(
         template="plotly_dark",
