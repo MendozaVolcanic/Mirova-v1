@@ -292,7 +292,15 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         # Clasificación MIROVA: escala única del sistema (Coppola, en volcanes.py).
         # Antes el OCR usaba una escala ad-hoc distinta a la de scraper.py.
         etiqueta_mirova = clasificacion_mirova(vrp_mw, es_alerta=True)
-        
+
+        # Nota de precisión (verificado 2026-06-12 contra latest.php a ciegas):
+        # MIROVA renderiza el VRP TRUNCADO A ENTERO en VIIRS750/MODIS (VIIRS375 lleva
+        # 2 decimales). Por eso un "X MW" leído de esos sensores significa X.00–X.99.
+        nota_final = clasificacion['nota']
+        if sensor in ('VIIRS', 'MODIS') and vrp_mw >= 1 and vrp_mw == int(vrp_mw):
+            nota_final += (f" | ⚠️ VRP truncado por MIROVA en {sensor}: "
+                           f"real ∈ [{int(vrp_mw)}, {int(vrp_mw)+1}) MW (±1)")
+
         # Crear registro
         nuevo_evento = {
             'timestamp': ts,
@@ -314,8 +322,8 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Confianza_Validacion': clasificacion['confianza'],
             'Requiere_Verificacion': clasificacion['requiere_verificacion'],
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
-            'Nota_Validacion': clasificacion['nota'],
-            'Version_OCR': '21.0'  # V21: Contexto latest.php
+            'Nota_Validacion': nota_final,
+            'Version_OCR': '29.1'  # V29.1: nota de precisión truncado VIIRS750/MODIS
         }
         
         eventos_nuevos.append(nuevo_evento)

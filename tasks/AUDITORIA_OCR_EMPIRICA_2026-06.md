@@ -116,3 +116,130 @@ El header "Thermal anomaly" se lee como validación cruzada del color.
 
 FASE 1 (grupos rojos) también usa km medidos vía `evento['geometria_panel']`.
 Header "Thermal anomaly" se lee como validación cruzada del color de estrella.
+
+---
+
+## I. Verificación píxeles/ROI para TODOS los volcanes (2026-06-12)
+
+**1. Límites km↔px contra la clasificación del propio MIROVA** (el rojo/negro de
+los tallos usa el límite específico de cada volcán — ground truth):
+- 9.455 marcadores ROJOS en 576 imágenes de los 12 volcanes → **0 fuera del límite**.
+- Máximos rojos observados confirman cada calibración: Lastarria 2.97<3,
+  PlanchonPeteroa 2.99<3, Copahue 3.38<4, Isluga 4.35<5, **Tupungatito 6.93<7**
+  (confirma el fix 257→243), Puyehue 12.16<20.
+- (Los "negros dentro del límite" de la primera pasada eran artefactos del script
+  de validación —contornos de estrella, ticks—, no del pipeline productivo.)
+
+**2. ROI temporal vs línea punteada del "ahora"**:
+- Detector por transiciones (una punteada tiene 20–40 guiones; un tallo sólido 1–2).
+- **576/576 imágenes: punteada en x=730–733.** El ROI fijo (x 716–734) cubre
+  exactamente [≈1.2 días antes del ahora → ahora] en todos los volcanes/épocas.
+- La alarma inicial (52 "outliers") era un falso positivo del primer detector
+  (columnas de tallos altos). Verificado visualmente (Láscar 20-Feb: punteada en
+  ~733 con la estrella encima, ROI correcto).
+
+**Conclusión:** geometría, límites y ROI verificados para los 11 volcanes (12
+configs con Peteroa legacy) contra 5 meses de imágenes. Mejora opcional de
+blindaje: anclar el ROI a la punteada detectada (mismo patrón medido-primario /
+fijo-fallback); prioridad baja dado 576/576 estable.
+
+**Corrección importante sobre ZEN/AZI:** revisando los Latest10NTI, ZEN/AZI son
+los ángulos de VISIÓN DEL SATÉLITE (geometría de la pasada), NO el azimut del
+foco respecto al cráter. Para el análisis de sector de Nevados, la dirección
+está en la POSICIÓN del píxel caliente dentro del thumbnail (escena centrada en
+el volcán): un foco a ~7 km al NE aparece desplazado al NE del centro.
+
+---
+
+## J. Barrido de estado-ANOMALÍA: 580 imágenes Latest + cruce vs latest.php (2026-06-12)
+
+**Método:** extractor espacial V28 sobre las 580 Latest10NTI guardadas en alertas
+(5.746 lecturas de celda) cruzadas contra el consolidado (verdad terreno), más
+taxonomía visual e hipótesis de oclusión del ROI.
+
+### J1. El OCR lee BIEN — los "errores" eran del gráfico
+- Tasa de coincidencia en celdas cruzables: **93.8%**, y de los 264 "VRP difiere",
+  **262 siguen el patrón exacto de truncado a entero, TODOS VIIRS750/MODIS**.
+- **Confirmado visualmente**: los paneles VIIRS750/MODIS muestran "VRP =1 MW"
+  donde latest.php dice 1.05; "VRP =0 MW" donde dice 0.33. **MIROVA renderiza el
+  VRP truncado a entero en esos sensores** (VIIRS375 sí muestra 2 decimales).
+- Consecuencias: (a) eventos VIIRS750/MODIS de 0.01–0.99 MW aparecen como
+  "VRP =0" → el OCR los trata como inválidos y LOS DESCARTA aunque la celda tenga
+  borde verde (= detección real de MIROVA); (b) los valores 1.x guardados por OCR
+  de esos sensores tienen precisión ±1 MW.
+- Texto ROJO de las celdas en alerta: se lee sin problema (los rojos matchearon).
+- Solo 2/5.746 lecturas fueron misreads reales (0.0 vs 1.0, MODIS).
+
+### J2. Latest10NTI contiene mediciones que latest.php NO tiene
+- 1.422 lecturas sin match en cobertura → deduplicadas: **666 mediciones únicas**
+  (531 VIIRS375), de las cuales **213 con VRP>0**.
+- Verificado visualmente (Chaitén 12-ene): los paneles muestran gránulos
+  (06:06:00, 04:30:00, 18:42:00…) que latest.php nunca listó (tiene 06:30:01,
+  04:48:01…). **MIROVA publica más gránulos por pasada en las imágenes que en la
+  tabla** → esta es la justificación cuantificada del scraper OCR: ~213 eventos
+  VRP>0 en 5 meses solo accesibles por imagen.
+
+### J3. La estrella OCLUYE el ROI en estado de anomalía
+- 448/448 estrellas verdes caen dentro del rango X del ROI (la estrella se dibuja
+  sobre la línea punteada del "ahora", que el ROI cubre).
+- En **69/448 (15%)** la estrella tapa POR COMPLETO el círculo rojo del evento →
+  cero píxeles rojos en ROI → FASE 1 ciega y todo recae en FASE 2 (consistente
+  con que las notas del CSV estén dominadas por validación-por-estrella).
+  Es una limitación DEL GRÁFICO, no de la lectura.
+
+### J4. Otras variantes confirmadas en estado anomalía
+- Cada celda con VRP>0 lleva: borde verde + fecha en ROJO + "VRP =X MW" en ROJO
+  (múltiples celdas a la vez, no solo la última).
+- La variante 850×596 también existe en Latest (36/580); V28 la absorbe (escala h/600).
+- Carpetas de evidencia con nombres duplicados ('Nevados de Chillan' vs
+  'Nevados_de_Chillan', 'Puyehue-Cordon Caulle' vs '_'): scraper y OCR normalizan
+  distinto — pendiente unificar con archivo_volcan() de volcanes.py.
+
+### J5. Mejoras candidatas derivadas
+1. **Celdas "VRP =0" con borde verde (VIIRS750/MODIS)**: detectar el borde verde
+   de la celda y, si VRP=0, guardar como detección "<1 MW (precisión del gráfico)"
+   con confianza media en vez de descartar.
+2. **Nota de precisión**: marcar eventos OCR de VIIRS750/MODIS como ±1 MW.
+3. **ROI anclado a la línea punteada** (mitiga parcialmente la oclusión, baja prioridad).
+4. Unificar normalización de carpetas de evidencia con volcanes.archivo_volcan().
+
+---
+
+## K. VERIFICACIÓN CIEGA del truncado VIIRS750/MODIS (2026-06-12)
+
+Para validar §J1 sin depender del extractor propio: 6 imágenes Latest de Láscar
+(2 VIIRS750, 2 MODIS, 2 VIIRS375) leídas por 6 agentes-visión independientes que
+transcribieron el texto literal de cada panel SIN conocer la hipótesis. Luego
+cruce de cada lectura contra latest.php (consolidado) en el mismo timestamp.
+
+**Resultado (prueba):**
+- VIIRS750/MODIS: **9/9** enteros == floor(valor real de latest.php).
+  Ejemplos: php 3.39→"3", 2.53→"2", 1.03→"1", 0.27→"0", 0.62→"0".
+- VIIRS375: **7/7** decimales == valor exacto de latest.php (0.74, 1.22, 2.55…).
+- 2 detecciones reales (header VERY LOW/LOW) renderizadas como "VRP =0":
+  VIIRS750 25-Feb (php 0.27) y MODIS 15-Feb (php 0.62). → truncado CONFIRMADO.
+
+**Alcance HONESTO de la pérdida (cuantificado):**
+- latest.php (scraper primario) ya captura CON decimales todo lo que está en su
+  tabla; el truncado solo causa pérdida en granulos que viven SOLO en la imagen.
+- Granulos solo-imagen en VIIRS750/MODIS (5 meses): **135**.
+  - 24 leídos como entero >0 → capturados pero imprecisos (±1 MW) → aplica nota de precisión.
+  - 111 leídos como 0/NaN → CANDIDATOS a detección sub-1 invisible (cota superior;
+    parte serán NaN reales por nube — solo el borde verde de celda los distingue).
+- Magnitud: ~decenas a ~100 detecciones DÉBILES (<1 MW) de fondo en 5 meses.
+  No son alertas mayores perdidas; es completitud/precisión del fondo térmico.
+
+**Conclusión:** truncado real y probado; rescate (borde-verde + nota ±1 MW)
+recupera señal débil de fondo de magnitud modesta. Decisión de implementar = de Nicolás.
+
+### K2. El rescate por "borde verde" NO es viable (refutado 2026-06-12)
+Test de la regla sobre las 60 celdas etiquetadas a ciegas: **borde verde ⟺ valor
+MOSTRADO > 0** → **60/60**. El borde verde sigue el MISMO valor truncado, no aporta
+información extra. Confirmado en píxeles: la celda VIIRS750 de 0.27 MW real (img_1 p1,
+header VERY LOW) muestra "VRP =0 MW" Y tiene 0 px verdes (borde gris). Idem MODIS 0.62.
+→ Una detección sub-1 MW en VIIRS750/MODIS es **invisible** en Latest10NTI (ni número
+ni borde). Solo recuperable por latest.php (que ya la tiene) o leyendo logVRP.png por
+píxel (impreciso). **Implementado solo lo válido:** nota de precisión ±1 MW en eventos
+VIIRS750/MODIS (V29.1). Rescate de los 111 image-only sub-1: NO se implementa (sin señal
+visual que los distinga de NaN). Alternativa posible pero marginal: punto rojo del Dist.png
+en ROI con texto=0 → diferida.
