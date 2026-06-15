@@ -80,6 +80,9 @@ jobs:
       - name: Ejecutar Scraper OCR
         run: python scraper_ocr.py
 
+      - name: Reconciliar OCR contra latest.php (auto-corrige mal-ubicaciones)
+        run: python reconciliar_latest.py
+
       - name: Ejecutar Merger Maestro
         run: python merger_maestro.py
 

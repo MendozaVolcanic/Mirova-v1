@@ -58,6 +58,48 @@ COLUMNAS_OCR = [
 ]
 
 # =========================
+# DETECCIÓN DE FORMATO ERRÁTICO DE MIROVA (#1)
+# =========================
+# La calibración del OCR (ROI, geometría, geofencing) asume imágenes 850×600
+# (o la variante 850×596). Si MIROVA cambia el tamaño/formato del gráfico, la
+# lectura se corrompe. Registramos las dimensiones inesperadas en un log chico
+# como alerta temprana — sin guardar imágenes extra.
+DIMS_ESPERADAS = {(850, 600), (850, 596)}
+
+
+def formato_anomalo(w, h):
+    """True si las dimensiones de la imagen MIROVA no son las calibradas."""
+    return (w, h) not in DIMS_ESPERADAS
+
+
+def registrar_formato(path, volcan, sensor, tipo):
+    """Si la imagen de MIROVA tiene dimensiones inesperadas, lo anota en
+    monitoreo_satelital/mirova_formato_log.csv (solo anomalías → se mantiene chico)."""
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            w, h = im.size
+    except Exception:
+        return
+    if not formato_anomalo(w, h):
+        return
+    import csv
+    ahora = datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
+    log = os.path.join(CARPETA_PRINCIPAL, "mirova_formato_log.csv")
+    nuevo = not os.path.exists(log)
+    try:
+        with open(log, "a", newline="", encoding="utf-8") as f:
+            wr = csv.writer(f)
+            if nuevo:
+                wr.writerow(["fecha_utc", "volcan", "sensor", "tipo", "ancho", "alto"])
+            wr.writerow([ahora, volcan, sensor, tipo, w, h])
+        print(f"  ⚠️ FORMATO INESPERADO de MIROVA: {volcan} {sensor} {tipo} = {w}x{h} "
+              f"(esperado 850×600/596) — registrado en mirova_formato_log.csv")
+    except OSError as e:
+        print(f"  ⚠️ no se pudo registrar formato: {e}")
+
+
+# =========================
 # FUNCIONES
 # =========================
 
@@ -150,9 +192,12 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     if not descargar_imagen_temp(session, url_latest, temp_latest):
         print(f"  ⚠️ No se pudo descargar Latest10NTI")
         return []
-    
+    registrar_formato(temp_latest, nombre_v, sensor, "Latest10NTI")  # #1 alerta de formato
+
     if not descargar_imagen_temp(session, url_dist, temp_dist):
         print(f"  ⚠️ No se pudo descargar Dist.png")
+    else:
+        registrar_formato(temp_dist, nombre_v, sensor, "Dist")  # #1 alerta de formato
     
     # OCR de Latest10NTI
     eventos = extraer_eventos_latest10nti(temp_latest)
