@@ -257,10 +257,35 @@ def crear_grafico(df_v, v, modo_log=False):
     )
     
     if not df_v_30.empty:
-        # Helper: dirección horizontal de la etiqueta según posición en el eje X
-        def _ax_dir(fecha):
-            prop = (fecha - hace_30_dias).total_seconds() / 86400 / 30
-            return -60 if prop > 0.85 else (60 if prop < 0.15 else 0)
+        # Rango Y según el modo (para ubicar las etiquetas sin que se salgan)
+        y_lo, y_hi = (4.7, 9.0) if modo_log else (0.0, max(1.1, v_max_val * 1.5))
+
+        def _dist_txt(row):
+            """Distancia al cráter (km) para agregar después de la potencia."""
+            d = row.get('Distancia_km')
+            try:
+                if pd.notna(d):
+                    return f" · {float(d):.1f} km"
+            except Exception:
+                pass
+            return ""
+
+        def _anclas(fecha, y_pos):
+            """Ancla + offset que empujan la etiqueta HACIA ADENTRO desde el borde
+            más cercano (X e Y) → nunca se sale del gráfico."""
+            propx = (fecha - hace_30_dias).total_seconds() / 86400 / 30
+            if propx > 0.78:      # cerca del borde derecho → texto hacia la izquierda
+                xa, ax = 'right', -28
+            elif propx < 0.22:    # cerca del borde izquierdo → texto hacia la derecha
+                xa, ax = 'left', 28
+            else:
+                xa, ax = 'center', 0
+            propy = (y_pos - y_lo) / (y_hi - y_lo) if y_hi > y_lo else 0.5
+            if propy < 0.5:       # punto en la mitad baja → etiqueta hacia ARRIBA
+                ya, ay = 'bottom', -30
+            else:                 # punto en la mitad alta → etiqueta hacia ABAJO
+                ya, ay = 'top', 30
+            return xa, ax, ya, ay
 
         max_r = df_v_30.loc[df_v_30['VRP_MW'].idxmax()]
         fecha_max = max_r['Fecha_UTC']
@@ -271,34 +296,30 @@ def crear_grafico(df_v, v, modo_log=False):
         # ¿La última lectura es también el máximo? (mismo punto → una sola etiqueta)
         ult_es_max = (fecha_ult == fecha_max) and (ult_r['VRP_MW'] == max_r['VRP_MW'])
 
-        # --- Etiqueta MÁX (azul, un poco más grande) ---
+        # --- Etiqueta MÁX (azul) — potencia + km ---
+        y_max = transform(max_r['VRP_MW'])
+        xa, ax, ya, ay = _anclas(fecha_max, y_max)
         fig.add_annotation(
-            x=fecha_max,
-            y=transform(max_r['VRP_MW']),
-            xref="x", yref="y",
-            text=(f"MÁX/ÚLTIMA: {max_r['VRP_MW']:.2f} MW" if ult_es_max
-                  else f"MÁX: {max_r['VRP_MW']:.2f} MW"),
-            showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.5,
-            arrowcolor="white",
+            x=fecha_max, y=y_max, xref="x", yref="y",
+            text=(f"MÁX/ÚLTIMA: {max_r['VRP_MW']:.2f} MW{_dist_txt(max_r)}" if ult_es_max
+                  else f"MÁX: {max_r['VRP_MW']:.2f} MW{_dist_txt(max_r)}"),
+            showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.5, arrowcolor="white",
             bgcolor="rgba(0,0,0,0.8)", bordercolor="#58a6ff", borderwidth=1.2,
             font=dict(color="white", size=12),
-            ay=-42, ax=_ax_dir(fecha_max)
+            xanchor=xa, yanchor=ya, ax=ax, ay=ay
         )
 
         # --- Etiqueta ÚLTIMA (naranja) — solo si es un punto distinto al MÁX ---
         if not ult_es_max:
+            y_ult = transform(ult_r['VRP_MW'])
+            xa, ax, ya, ay = _anclas(fecha_ult, y_ult)
             fig.add_annotation(
-                x=fecha_ult,
-                y=transform(ult_r['VRP_MW']),
-                xref="x", yref="y",
-                text=f"ÚLTIMA: {ult_r['VRP_MW']:.2f} MW",
-                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.5,
-                arrowcolor="white",
+                x=fecha_ult, y=y_ult, xref="x", yref="y",
+                text=f"ÚLTIMA: {ult_r['VRP_MW']:.2f} MW{_dist_txt(ult_r)}",
+                showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.5, arrowcolor="white",
                 bgcolor="rgba(0,0,0,0.8)", bordercolor="#f0883e", borderwidth=1.2,
                 font=dict(color="white", size=12),
-                # offset vertical opuesto si MÁX y ÚLTIMA están cerca en X (evita solape)
-                ay=(40 if abs((fecha_ult - fecha_max).total_seconds()) < 3*86400 else -42),
-                ax=_ax_dir(fecha_ult)
+                xanchor=xa, yanchor=ya, ax=ax, ay=ay
             )
     
     fig.update_layout(
