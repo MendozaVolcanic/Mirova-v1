@@ -126,7 +126,8 @@ jobs:
       - name: Decidir si hay datos nuevos para publicar
         id: datahash
         run: |
-          NEW=$(cat monitoreo_satelital/registro_vrp_maestro_publicable.csv                     monitoreo_satelital/registro_vrp_positivos.csv 2>/dev/null | sha256sum | cut -d" " -f1)
+          # hash normalizado (ignora reordenamiento y columnas de timestamp volatiles)
+          NEW=$(python scripts/deploy_hash.py)
           # cache-buster por-run: evita que el CDN de Pages devuelva un hash viejo
           PUB=$(curl -fsS --max-time 20 "https://mendozavolcanic.github.io/Mirova-v1/deploy_data_hash.txt?nc=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" 2>/dev/null || echo "")
           echo "$NEW" > _site/deploy_data_hash.txt
