@@ -23,7 +23,7 @@ jobs:
     
     steps:
       - name: Checkout código
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
       
       - name: Verificar ROI_CONFIG existe
         run: |
@@ -80,7 +80,7 @@ jobs:
     name: ✅ Validar Sistema 3 Fases
     
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       
       - name: Verificar clasificar_confianza con 3 parámetros
         run: |
@@ -121,7 +121,7 @@ jobs:
     name: ✅ Validar Estrella Verde V16
     
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       
       - name: Verificar filtro de zona
         run: |
@@ -151,7 +151,7 @@ jobs:
     name: 🧪 Tests de comportamiento (pytest)
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -179,7 +179,7 @@ jobs:
     name: ✅ Validar volcanes.py (fuente única)
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -204,7 +204,7 @@ jobs:
     name: ✅ Validar Imports Necesarios
     
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       
       - name: Verificar import os
         run: |
