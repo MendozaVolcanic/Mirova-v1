@@ -110,44 +110,71 @@ jobs:
           echo "Archivos en el sitio publicable: $(find _site -type f | wc -l)"
           find _site -type f | sort
 
+      # =====================================================================
+      # Publicar en Pages SOLO si cambiaron los datos que alimentan los graficos.
+      # visualizador.py lee UNICAMENTE registro_vrp_maestro_publicable.csv y
+      # registro_vrp_positivos.csv. El resto (HTML, estado_sistema.json,
+      # consolidado.csv) cambia en cada ciclo por timestamps/heartbeat, no por
+      # dato nuevo. Como el workflow corre cada ~5 min pero los datos VRP cambian
+      # pocas veces al dia, deployar siempre saturaba el backend de Pages (solo
+      # admite 1 deployment activo por sitio) -> ~25% de "Deployment failed,
+      # try again later" y un mail por cada fallo. Comparamos el hash de los
+      # datos-fuente con el que ya esta publicado; si coincide, no hay nada nuevo
+      # que mostrar y se omite el deploy. Si un deploy con datos nuevos falla, el
+      # hash publicado queda viejo y el proximo ciclo lo reintenta (auto-sana).
+      # =====================================================================
+      - name: Decidir si hay datos nuevos para publicar
+        id: datahash
+        run: |
+          NEW=$(cat monitoreo_satelital/registro_vrp_maestro_publicable.csv                     monitoreo_satelital/registro_vrp_positivos.csv 2>/dev/null | sha256sum | cut -d" " -f1)
+          PUB=$(curl -fsS --max-time 20 "https://mendozavolcanic.github.io/Mirova-v1/deploy_data_hash.txt" 2>/dev/null || echo "")
+          echo "$NEW" > _site/deploy_data_hash.txt
+          if [ "$NEW" = "$PUB" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Datos-fuente sin cambios (hash $NEW). Se omite el deploy a Pages."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Datos nuevos -> publicado=[$PUB] actual=[$NEW]. Se deployara."
+          fi
+
       - name: Configurar Pages
+        if: steps.datahash.outputs.changed == 'true'
         uses: actions/configure-pages@v6
 
       - name: Subir artefacto a Pages
+        if: steps.datahash.outputs.changed == 'true'
         uses: actions/upload-pages-artifact@v5
         with:
-          path: '_site'  # ✅ Solo el dashboard, no las 4400+ PNG de evidencia
+          path: '_site'  # Solo el dashboard, no las 4400+ PNG de evidencia
 
-      # Deploy resiliente. GitHub Pages solo admite UN deployment activo por
-      # sitio. Como este workflow corre cada ~5 min (disparado por el scraper),
-      # a veces dispara mientras el backend de Pages aun finaliza el deployment
-      # anterior y responde "Deployment failed, try again later" (~25% de los
-      # runs). Es transitorio y auto-sanable: el siguiente ciclo redeploya con
-      # datos frescos. Para no fallar el run (y no inundar el mail con avisos de
-      # fallo) hacemos 2 intentos con espera y toleramos el fallo final.
+      # Deploy resiliente (Capa 1): 2 intentos tolerantes para el caso raro de
+      # colision real, de modo que un rechazo transitorio no falle el run.
       - name: Deploy a GitHub Pages (intento 1)
         id: deployment
+        if: steps.datahash.outputs.changed == 'true'
         continue-on-error: true
         uses: actions/deploy-pages@v5
 
       - name: Esperar si Pages estaba ocupado
-        if: steps.deployment.outcome == 'failure'
+        if: steps.datahash.outputs.changed == 'true' && steps.deployment.outcome == 'failure'
         run: |
           echo "Primer intento rechazado por Pages; espero 60 s y reintento..."
           sleep 60
 
       - name: Deploy a GitHub Pages (reintento)
         id: deployment_retry
-        if: steps.deployment.outcome == 'failure'
+        if: steps.datahash.outputs.changed == 'true' && steps.deployment.outcome == 'failure'
         continue-on-error: true
         uses: actions/deploy-pages@v5
 
       - name: Estado del deploy
         run: |
-          if [ "${{ steps.deployment.outcome }}" = "success" ] || [ "${{ steps.deployment_retry.outcome }}" = "success" ]; then
+          if [ "${{ steps.datahash.outputs.changed }}" != "true" ]; then
+            echo "Sin cambios en los datos-fuente; deploy omitido (correcto)."
+          elif [ "${{ steps.deployment.outcome }}" = "success" ] || [ "${{ steps.deployment_retry.outcome }}" = "success" ]; then
             echo "OK: deploy a Pages exitoso."
           else
-            echo "AVISO: ambos intentos de deploy fallaron (rechazo transitorio de Pages)."
-            echo "El proximo ciclo (~5 min) redeployara con datos frescos."
-            echo "No se marca el run como fallido a proposito, para no inundar el mail."
+            echo "AVISO: deploy fallo (rechazo transitorio de Pages). El proximo ciclo"
+            echo "con datos nuevos lo reintentara; el run NO se marca como fallido a"
+            echo "proposito, para no inundar el mail."
           fi
