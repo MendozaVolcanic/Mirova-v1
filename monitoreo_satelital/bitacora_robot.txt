@@ -160369,3 +160369,6 @@
 [2026-07-08 18:05:59] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-07-08 18:06:00] Filas leídas desde latest.php: 528
 [2026-07-08 18:06:00] ERROR: could not convert string to float: '1,357.39'
+[2026-07-08 18:11:22] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-07-08 18:11:23] Filas leídas desde latest.php: 528
+[2026-07-08 18:11:23] ERROR: could not convert string to float: '1,357.39'
