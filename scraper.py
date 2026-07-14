@@ -55,10 +55,18 @@ def descargar_v104(session, volcan_id, dt_utc, sensor_tabla, es_alerta_real):
     nombre_v = conf["nombre"]
     id_mirova = conf["id_mirova"]
 
+    # Carpeta y nombre de archivo con guion bajo, para unificar con scraper_ocr.py,
+    # visualizador.py y volcanes.archivo_volcan(). Sin esto, scraper.py escribia
+    # "Puyehue-Cordon Caulle"/ (espacio) mientras el OCR escribia
+    # "Puyehue-Cordon_Caulle"/ (guion bajo) para el MISMO volcan, fragmentando la
+    # evidencia en dos carpetas y rompiendo el link "ver carpeta" (que siempre
+    # usa guion bajo). Solo afecta a los 2 volcanes con espacio en el nombre.
+    nombre_v_normalizado = nombre_v.replace(' ', '_')
+
     f_c = dt_utc.strftime("%Y-%m-%d")
     h_a = dt_utc.strftime("%H-%M-%S")
 
-    ruta_dia = os.path.join(RUTA_IMAGENES_BASE, nombre_v, f_c)
+    ruta_dia = os.path.join(RUTA_IMAGENES_BASE, nombre_v_normalizado, f_c)
     os.makedirs(ruta_dia, exist_ok=True)
 
     s_url = "VIIRS750" if sensor_tabla == "VIIRS" else sensor_tabla
@@ -69,7 +77,7 @@ def descargar_v104(session, volcan_id, dt_utc, sensor_tabla, es_alerta_real):
     for t in tipos:
         t_url = f"{t}10NTI" if t == "Latest" else t
         url = f"https://www.mirovaweb.it/OUTPUTweb/MIROVA/{s_url}/VOLCANOES/{id_mirova}/{id_mirova}_{s_url}_{t_url}.png"
-        filename = f"{h_a}_{nombre_v}_{s_url}_{t}.png"
+        filename = f"{h_a}_{nombre_v_normalizado}_{s_url}_{t}.png"
         path_f = os.path.join(ruta_dia, filename)
 
         try:
@@ -78,7 +86,7 @@ def descargar_v104(session, volcan_id, dt_utc, sensor_tabla, es_alerta_real):
                 with open(path_f, 'wb') as f:
                     f.write(r.content)
                 if t in ["VRP", "Latest"]:
-                    ruta_relativa = f"imagenes_satelitales/{nombre_v}/{f_c}/{filename}"
+                    ruta_relativa = f"imagenes_satelitales/{nombre_v_normalizado}/{f_c}/{filename}"
             time.sleep(0.3)
         except Exception as e:
             log_debug(f"Descarga {t} de {nombre_v} falló: {e}", "ADVERTENCIA")
