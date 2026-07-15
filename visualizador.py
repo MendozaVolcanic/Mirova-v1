@@ -9,6 +9,10 @@ ARCHIVO_MAESTRO = "monitoreo_satelital/registro_vrp_maestro_publicable.csv"
 ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
 CARPETA_LOG = "monitoreo_satelital/v_html_log"
+# Overlay de curaduria humana: detecciones marcadas a mano como falso positivo /
+# artefacto (cirrus, etc.). NO se borran del dato crudo; solo cambian como se
+# grafican (se excluyen de la escala y van a una traza aparte). Ver marcar_artefacto.yml.
+ARCHIVO_ANOTACIONES = "monitoreo_satelital/anotaciones.csv"
 
 # Lista de volcanes y datos del dashboard desde la fuente única (volcanes.py)
 from volcanes import LISTA_VOLCANES as VOLCANES, DASHBOARD
@@ -37,7 +41,32 @@ MIROVA_BANDS = [
     (1e9,   1e10, "Muy Alto", "rgba(220, 20, 60, 0.15)")
 ]
 
-def crear_grafico(df_v, v, modo_log=False):
+def cargar_anotaciones():
+    """Lee anotaciones.csv y devuelve {(timestamp, Volcan): motivo}. El dato crudo
+    NO se toca; esto solo afecta la visualizacion. Si el archivo no existe devuelve
+    {} (comportamiento identico al actual)."""
+    d = {}
+    if not os.path.exists(ARCHIVO_ANOTACIONES):
+        return d
+    try:
+        a = pd.read_csv(ARCHIVO_ANOTACIONES, dtype=str).fillna('')
+    except Exception as e:
+        print(f"⚠️ No se pudo leer {ARCHIVO_ANOTACIONES}: {e}")
+        return d
+    for _, r in a.iterrows():
+        ts = str(r.get('timestamp', '')).strip()
+        vol = str(r.get('Volcan', '')).strip()
+        if not ts or not vol:
+            continue
+        try:
+            ts = str(int(float(ts)))
+        except ValueError:
+            pass
+        d[(ts, vol)] = str(r.get('motivo', '')).strip()
+    return d
+
+
+def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
     tz_chile = pytz.timezone('America/Santiago')
     ahora = datetime.now(tz_chile)
     hace_30_dias = (ahora - timedelta(days=30)).replace(hour=0, minute=0, second=0)
@@ -51,9 +80,22 @@ def crear_grafico(df_v, v, modo_log=False):
 
     if df_v_30.empty: return None
 
+    # --- Capa de curaduria: separar detecciones marcadas como artefacto ----------
+    # Los marcados se EXCLUYEN del autoescalado del eje Y (para no aplastar la senal
+    # real) y se dibujan aparte (gris, apagados por defecto). No se borra nada.
+    anotaciones_v = anotaciones_v or {}
+    def _ts_key(x):
+        try:
+            return str(int(float(x)))
+        except (ValueError, TypeError):
+            return str(x).strip()
+    df_v_30['_es_artefacto'] = df_v_30['timestamp'].apply(_ts_key).isin(set(anotaciones_v.keys()))
+    df_normal = df_v_30[~df_v_30['_es_artefacto']].copy()
+    df_arte = df_v_30[df_v_30['_es_artefacto']].copy()
+
     unidad = "Watt" if modo_log else "MW"
     fig = go.Figure()
-    v_max_val = df_v_30['VRP_MW'].max()
+    v_max_val = df_normal['VRP_MW'].max() if not df_normal.empty else 1.0
     
     def transform(val_mw):
         if modo_log:
@@ -103,8 +145,8 @@ def crear_grafico(df_v, v, modo_log=False):
 
     sensores_agregados = set()
     
-    for sensor in df_v_30['Sensor'].unique():
-        df_sensor = df_v_30[df_v_30['Sensor'] == sensor]
+    for sensor in df_normal['Sensor'].unique():
+        df_sensor = df_normal[df_normal['Sensor'] == sensor].copy()
         
         hover_texts = []
         customdata_urls = []
@@ -170,6 +212,32 @@ def crear_grafico(df_v, v, modo_log=False):
                 showlegend=True
             ))
             sensores_agregados.add(sensor)
+
+    # Traza de posibles artefactos: gris, simbolo X, apagada por defecto.
+    if not df_arte.empty:
+        df_arte['VRP_Transformed'] = df_arte['VRP_MW'].apply(transform)
+        hover_arte = []
+        for _, row in df_arte.iterrows():
+            motivo = anotaciones_v.get(_ts_key(row['timestamp']), '')
+            hover_arte.append(
+                f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
+                f"{row['VRP_MW']:.2f} MW · {row['Sensor']}<br>"
+                f"Dist: {row['Distancia_km']:.1f} km<br>"
+                f"<b>⚠ Marcado como posible artefacto</b><br>"
+                f"<i>{motivo}</i>"
+            )
+        fig.add_trace(go.Scatter(
+            x=df_arte['Fecha_UTC'],
+            y=df_arte['VRP_Transformed'],
+            mode='markers',
+            name='Posibles artefactos',
+            marker=dict(size=8, symbol='x', color='rgba(150,150,150,0.75)',
+                        line=dict(width=1, color='#8b949e')),
+            hovertemplate='%{text}<extra></extra>',
+            text=hover_arte,
+            visible='legendonly',
+            showlegend=True
+        ))
 
     MESES_ES_DICT = {
         'Jan': 'Ene', 'Feb': 'Feb', 'Mar': 'Mar', 'Apr': 'Abr',
@@ -256,7 +324,7 @@ def crear_grafico(df_v, v, modo_log=False):
         xanchor="right"
     )
     
-    if not df_v_30.empty:
+    if not df_normal.empty:
         # Rango Y según el modo (para ubicar las etiquetas sin que se salgan)
         y_lo, y_hi = (4.7, 9.0) if modo_log else (0.0, max(1.1, v_max_val * 1.5))
 
@@ -287,11 +355,11 @@ def crear_grafico(df_v, v, modo_log=False):
                 ya, ay = 'top', 30
             return xa, ax, ya, ay
 
-        max_r = df_v_30.loc[df_v_30['VRP_MW'].idxmax()]
+        max_r = df_normal.loc[df_normal['VRP_MW'].idxmax()]
         fecha_max = max_r['Fecha_UTC']
 
         # Última lectura = evento VRP>0 más reciente del periodo
-        ult_r = df_v_30.loc[df_v_30['Fecha_UTC'].idxmax()]
+        ult_r = df_normal.loc[df_normal['Fecha_UTC'].idxmax()]
         fecha_ult = ult_r['Fecha_UTC']
         # ¿La última lectura es también el máximo? (mismo punto → una sola etiqueta)
         ult_es_max = (fecha_ult == fecha_max) and (ult_r['VRP_MW'] == max_r['VRP_MW'])
@@ -401,12 +469,17 @@ def procesar():
         }
     }
 
+    anotaciones = cargar_anotaciones()
+    if anotaciones:
+        print(f"📌 {len(anotaciones)} deteccion(es) marcadas como artefacto (overlay curaduria)")
+
     for v in VOLCANES:
         df_v = df[df['Volcan'] == v].copy()
+        anot_v = {ts: mot for (ts, vol), mot in anotaciones.items() if vol == v}
         nombre_f = f"{v.replace(' ', '_').replace('-', '_')}.html"
         
         for carpeta, es_log in [(CARPETA_LINEAL, False), (CARPETA_LOG, True)]:
-            fig = crear_grafico(df_v, v, modo_log=es_log)
+            fig = crear_grafico(df_v, v, modo_log=es_log, anotaciones_v=anot_v)
             path = os.path.join(carpeta, nombre_f)
             
             if fig is None:
