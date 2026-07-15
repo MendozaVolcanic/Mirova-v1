@@ -1,0 +1,135 @@
+name: Marcar / desmarcar artefacto
+
+# Formulario para curar el dashboard SIN borrar datos.
+#
+# Por que existe: MIROVA a veces reporta falsos positivos (cirrus, artefactos de
+# sensor) con VRP altisimo. En eje lineal un solo punto de 760 MW aplasta la senal
+# real (fracciones de MW) y se pierde la escala. Este workflow marca una deteccion
+# como "artefacto" en monitoreo_satelital/anotaciones.csv (un overlay), de modo que
+# visualizador.py la EXCLUYE del autoescalado y la muestra como traza aparte,
+# apagable. El dato CRUDO nunca se toca -> sigue sirviendo para calibrar otras
+# herramientas. Es reversible (accion=desmarcar).
+#
+# Como se usa: pestana Actions -> "Marcar / desmarcar artefacto" -> Run workflow.
+# El timestamp es el campo unix de la fila (visible en los CSV; ej. 1781544241).
+# El cambio se refleja en el dashboard en <=5 min (proximo ciclo de graficos, que
+# ahora incluye anotaciones.csv en el gate de deploy).
+
+on:
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: 'Accion'
+        type: choice
+        default: marcar
+        options: [marcar, desmarcar]
+      volcan:
+        description: 'Volcan (nombre exacto de la columna Volcan)'
+        type: choice
+        options:
+          - Isluga
+          - Lascar
+          - Lastarria
+          - Tupungatito
+          - PlanchonPeteroa
+          - Nevados de Chillan
+          - Copahue
+          - Llaima
+          - Villarrica
+          - Puyehue-Cordon Caulle
+          - Chaiten
+      timestamp:
+        description: 'timestamp unix de la deteccion (ej. 1781544241)'
+        required: true
+        type: string
+      estado:
+        description: 'Tipo de marca'
+        type: choice
+        default: artefacto
+        options: [artefacto, dudoso]
+      motivo:
+        description: 'Motivo (por que es artefacto)'
+        required: true
+        type: string
+
+concurrency:
+  group: curaduria-anotaciones
+  cancel-in-progress: false
+
+jobs:
+  curar:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Aplicar marca en anotaciones.csv
+        env:
+          ACCION: ${{ inputs.accion }}
+          VOL: ${{ inputs.volcan }}
+          TS: ${{ inputs.timestamp }}
+          ESTADO: ${{ inputs.estado }}
+          MOTIVO: ${{ inputs.motivo }}
+        run: |
+          FECHA=$(date -u +%Y-%m-%d) python3 - <<'PY'
+          import csv, os
+          ARCH = "monitoreo_satelital/anotaciones.csv"
+          COLS = ["timestamp", "Volcan", "estado", "motivo", "fecha_marcado"]
+          ts = os.environ["TS"].strip()
+          vol = os.environ["VOL"].strip()
+          estado = os.environ["ESTADO"].strip()
+          motivo = os.environ["MOTIVO"].strip()
+          accion = os.environ["ACCION"].strip()
+          fecha = os.environ["FECHA"].strip()
+          try:
+              ts = str(int(float(ts)))
+          except ValueError:
+              raise SystemExit(f"timestamp invalido: {ts!r}")
+
+          rows = []
+          if os.path.exists(ARCH):
+              with open(ARCH, encoding="utf-8", newline="") as f:
+                  rows = list(csv.DictReader(f))
+          # quitar cualquier fila previa con el mismo (timestamp, Volcan)
+          antes = len(rows)
+          rows = [r for r in rows if not (str(r.get("timestamp", "")).strip() == ts
+                                          and str(r.get("Volcan", "")).strip() == vol)]
+          existia = len(rows) != antes
+
+          if accion == "marcar":
+              rows.append({"timestamp": ts, "Volcan": vol, "estado": estado,
+                           "motivo": motivo, "fecha_marcado": fecha})
+              print(f"MARCAR ts={ts} vol={vol} estado={estado}"
+                    + (" (reemplaza marca previa)" if existia else ""))
+          else:
+              if not existia:
+                  print(f"DESMARCAR: no habia marca para ts={ts} vol={vol}. Nada que hacer.")
+              else:
+                  print(f"DESMARCAR ts={ts} vol={vol}")
+
+          rows.sort(key=lambda r: (r.get("Volcan", ""), r.get("timestamp", "")))
+          os.makedirs(os.path.dirname(ARCH), exist_ok=True)
+          with open(ARCH, "w", encoding="utf-8", newline="") as f:
+              w = csv.DictWriter(f, fieldnames=COLS)
+              w.writeheader()
+              for r in rows:
+                  w.writerow({k: r.get(k, "") for k in COLS})
+          print(f"Total anotaciones ahora: {len(rows)}")
+          PY
+
+      - name: Commitear el cambio
+        run: |
+          git config --global user.name "VolcanoCurador"
+          git config --global user.email "curador@volcano.com"
+          git add monitoreo_satelital/anotaciones.csv
+          if git diff --quiet --staged; then
+            echo "Sin cambios efectivos en anotaciones.csv."
+            exit 0
+          fi
+          git commit -m "curaduria: ${{ inputs.accion }} artefacto ${{ inputs.volcan }} ts=${{ inputs.timestamp }}"
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then echo "push OK"; break; fi
+            echo "push fallo, reintento $i"; git pull --rebase origin main || true; sleep 2
+          done
