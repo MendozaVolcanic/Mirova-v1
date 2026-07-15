@@ -24,6 +24,9 @@ import hashlib
 ARCHIVOS = [
     "monitoreo_satelital/registro_vrp_maestro_publicable.csv",
     "monitoreo_satelital/registro_vrp_positivos.csv",
+    # Overlay de curaduria: marcar/desmarcar un artefacto cambia los graficos, asi
+    # que debe disparar una republicacion. Sin volatiles -> solo cambia al curar.
+    "monitoreo_satelital/anotaciones.csv",
 ]
 VOLATILES = {"Fecha_Proceso_GitHub", "Ultima_Actualizacion", "Editado"}
 
