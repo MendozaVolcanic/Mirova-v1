@@ -36,7 +36,7 @@ from ocr_utils import (
 # =========================
 
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
-from volcanes import VOLCANES_CONFIG, clasificacion_mirova
+from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 
@@ -125,7 +125,7 @@ def descargar_imagenes_permanentes(session, volcan_id, sensor, evento, es_verifi
     nombre_v = conf["nombre"]
     
     # Solo reemplazar espacios, NO guiones
-    nombre_v_normalizado = nombre_v.replace(' ', '_')
+    nombre_v_normalizado = archivo_volcan(nombre_v)  # canónico: espacio Y guión -> _
     id_mirova = conf["id_mirova"]
     
     dt_utc = evento['datetime']

@@ -12,7 +12,7 @@ import numpy as np
 # =========================
 
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
-from volcanes import VOLCANES_CONFIG, clasificacion_mirova
+from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
 
 CARPETA_PRINCIPAL = "monitoreo_satelital"
 RUTA_IMAGENES_BASE = os.path.join(CARPETA_PRINCIPAL, "imagenes_satelitales")
@@ -61,7 +61,7 @@ def descargar_v104(session, volcan_id, dt_utc, sensor_tabla, es_alerta_real):
     # "Puyehue-Cordon_Caulle"/ (guion bajo) para el MISMO volcan, fragmentando la
     # evidencia en dos carpetas y rompiendo el link "ver carpeta" (que siempre
     # usa guion bajo). Solo afecta a los 2 volcanes con espacio en el nombre.
-    nombre_v_normalizado = nombre_v.replace(' ', '_')
+    nombre_v_normalizado = archivo_volcan(nombre_v)  # canónico: espacio Y guión -> _
 
     f_c = dt_utc.strftime("%Y-%m-%d")
     h_a = dt_utc.strftime("%H-%M-%S")
