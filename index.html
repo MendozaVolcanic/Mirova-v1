@@ -118,6 +118,8 @@
                 btn.innerText = "📉 Escala: Log";
                 btn.classList.add('btn-active');
                 iframes.forEach(iframe => {
+                    iframe._intentos = 0;
+                    armarWatchdog(iframe);
                     iframe.src = iframe.src.replace('/v_html/', '/v_html_log/');
                 });
             } else {
@@ -125,6 +127,8 @@
                 btn.innerText = "📈 Escala: Lineal";
                 btn.classList.remove('btn-active');
                 iframes.forEach(iframe => {
+                    iframe._intentos = 0;
+                    armarWatchdog(iframe);
                     iframe.src = iframe.src.replace('/v_html_log/', '/v_html/');
                 });
             }
@@ -159,6 +163,62 @@
             a.click();
         }
         
+        // ============================================================
+        // Auto-reintento de graficos que no cargan (ej: 5xx transitorio de
+        // GitHub Pages -> pagina del "unicornio", o 404 momentaneo). Cada iframe
+        // es del MISMO origen que el dashboard, asi que tras cargar podemos leer
+        // su contenido: una pagina valida del sistema tiene el grafico de Plotly
+        // (.plotly-graph-div) O el cartel "SIN ANOMALIA TERMICA". Si no tiene
+        // ninguno, es una pagina de error -> recargamos SOLO ese recuadro, con
+        // backoff, hasta MAX_REINTENTOS. La recarga horaria global (arriba) queda
+        // como respaldo por si se agotan los reintentos.
+        const MAX_REINTENTOS = 3;
+        const ESPERA_MS = [2500, 5000, 10000];
+        const WATCHDOG_MS = 15000;
+
+        function paginaValida(iframe) {
+            try {
+                const doc = iframe.contentDocument || iframe.contentWindow.document;
+                if (!doc) return false;
+                if (doc.querySelector('.plotly-graph-div')) return true;          // grafico con datos
+                const txt = (doc.body && doc.body.textContent) || '';
+                if (/SIN ANOMAL/i.test(txt)) return true;                          // pagina valida sin datos
+                return false;                                                       // pagina de error
+            } catch (e) {
+                return false; // no legible (bloqueada/error) -> tratar como fallo
+            }
+        }
+
+        function armarWatchdog(iframe) {
+            clearTimeout(iframe._watchdog);
+            iframe._watchdog = setTimeout(() => manejarFallo(iframe), WATCHDOG_MS);
+        }
+
+        function manejarFallo(iframe) {
+            if ((iframe._intentos || 0) >= MAX_REINTENTOS) return; // se rinde; respaldo = recarga horaria
+            const espera = ESPERA_MS[Math.min(iframe._intentos || 0, ESPERA_MS.length - 1)];
+            iframe._intentos = (iframe._intentos || 0) + 1;
+            setTimeout(() => {
+                const base = iframe.src.split('?')[0];
+                armarWatchdog(iframe);
+                iframe.src = base + '?t=' + Date.now() + '&r=' + iframe._intentos;
+            }, espera);
+        }
+
+        function vigilar(iframe) {
+            if (!iframe) return;
+            iframe._intentos = 0;
+            iframe.addEventListener('load', () => {
+                clearTimeout(iframe._watchdog);
+                if (paginaValida(iframe)) {
+                    iframe._intentos = 0;         // cargo bien
+                } else {
+                    manejarFallo(iframe);         // pagina de error -> reintentar
+                }
+            });
+            armarWatchdog(iframe);
+        }
+
         async function init() {
             const container = document.getElementById('galeria'); 
             const ts = new Date().getTime();
@@ -180,6 +240,7 @@
                     <iframe src="${url}" scrolling="no"></iframe>
                 `;
                 container.appendChild(card);
+                vigilar(card.querySelector('iframe'));
             });
             
             fetch('monitoreo_satelital/estado_sistema.json?t=' + ts)
