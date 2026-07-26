@@ -175531,3 +175531,5 @@
 [2026-07-26 12:25:50] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-07-26 12:25:51] Filas leídas desde latest.php: 528
 [2026-07-26 12:25:52] Proceso completado correctamente.
+[2026-07-26 12:30:57] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-07-26 12:31:07] ERROR: HTTPSConnectionPool(host='www.mirovaweb.it', port=443): Max retries exceeded with url: /NRT/latest.php (Caused by NameResolutionError("HTTPSConnection(host='www.mirovaweb.it', port=443): Failed to resolve 'www.mirovaweb.it' ([Errno -3] Temporary failure in name resolution)"))
