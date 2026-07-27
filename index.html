@@ -7,7 +7,8 @@
     <script>setTimeout(() => location.reload(), 3600000);</script>
     <style>
         body { background-color: #0b0e14; color: #e0e0e0; font-family: 'Segoe UI', sans-serif; margin: 0; overflow-x: hidden; }
-        #audit-bar { background: #161b22; padding: 6px 15px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 1000; font-size: 0.8em; }
+        #barra-superior { position: sticky; top: 0; z-index: 1000; }
+        #audit-bar { background: #161b22; padding: 6px 15px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; font-size: 0.8em; }
         .status-badge { padding: 3px 10px; border-radius: 15px; font-weight: bold; border: 1px solid #30363d; background: #0d1117; }
         .btn-ui { background: #30363d; color: white; border: 1px solid #444; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em; margin-left: 5px; }
         .btn-ui:hover { background: #444c56; }
@@ -16,12 +17,12 @@
         header { text-align: center; padding: 10px; background: #0d1117; border-bottom: 1px solid #30363d; }
         header h1 { margin: 0; color: #58a6ff; font-size: 1.5em; }
         header p { color: #8b949e; margin: 2px 0 0 0; font-size: 0.8em; }
-        
+
         .legend-container { margin: 8px 0; font-size: 0.72em; display: flex; flex-direction: column; align-items: center; gap: 4px; }
         .legend-row { display: flex; align-items: center; gap: 15px; }
         .legend-item { display: inline-flex; align-items: center; gap: 4px; }
         .legend-box { width: 12px; height: 12px; border: 1px solid #30363d; border-radius: 2px; }
-        
+
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 5px; padding: 5px; max-width: 99.5%; margin: 0 auto; }
         .card { background-color: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 0px; position: relative; }
         .card-header-box { text-align: center; padding: 8px 0 4px 0; }
@@ -32,9 +33,64 @@
 
         iframe { width: 100%; height: 310px; border: none; background: #0d1117; border-radius: 2px; overflow: hidden; display: block; margin-top: 2px; }
 
-        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 2000; justify-content: center; align-items: center; }
-        .modal-content { width: 98%; height: 95%; background: #161b22; border: 1px solid #58a6ff; border-radius: 4px; position: relative; }
-        .close-modal { position: absolute; top: -10px; right: -10px; background: #ff4500; color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; z-index: 2100; }
+        /* ============================================================
+           AVISO DE DATOS NUEVOS  (patron: GUIA_ALERTAS_DATOS_NUEVOS.md)
+           Racional de color: rojo = dato nuevo | verde = evento
+           informativo | ambar = atencion | rojo de fondo = alarma.
+           ============================================================ */
+
+        /* 1. Resaltado del VOLCAN con dato nuevo: visible de lejos */
+        .card.nueva-hoy { border-color: #ff2d2d; animation: pulso-nueva 1.4s ease-in-out infinite; }
+        @keyframes pulso-nueva {
+          0%, 100% { border-color: #ff2d2d;
+                     box-shadow: 0 0 8px rgba(255,45,45,.55), inset 0 0 4px rgba(255,45,45,.25); }
+          50%      { border-color: #ff6b6b;
+                     box-shadow: 0 0 22px rgba(255,45,45,.95), inset 0 0 10px rgba(255,45,45,.4); }
+        }
+        .dot-nueva {
+          display: inline-block; width: .7em; height: .7em;
+          border-radius: 50%; background: #ff2d2d; margin-right: 5px; flex-shrink: 0;
+          animation: pulso-dot 1.4s ease-in-out infinite;
+          box-shadow: 0 0 6px rgba(255,45,45,.9);
+        }
+        @keyframes pulso-dot {
+          0%, 100% { transform: scale(1);    opacity: 1; }
+          50%      { transform: scale(1.35); opacity: .65; }
+        }
+        .badge-nuevo { background: #dc2626; color: #fff; font-size: .7em; font-weight: bold;
+                       padding: 1px 6px; border-radius: 8px; margin-left: 6px;
+                       animation: blink 1.2s infinite; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+
+        /* 2. Banda del EVENTO: acompana al sonido. Click = acuse de recibo. */
+        .aviso-nueva {
+          display: none;
+          background: #14532d; color: #b7f7c4;
+          font-weight: 800; font-size: .95em; text-align: center;
+          padding: 6px 14px; letter-spacing: .02em;
+          border-bottom: 2px solid #2ea043; cursor: pointer;
+        }
+        .aviso-nueva.visible { display: block; animation: blink 1.6s 3; }
+
+        /* 3. Banda de ALARMA de sistema (sin conexion con los datos) */
+        .estado-global {
+          display: none;
+          background: #b91c1c; color: #fff;
+          font-weight: 800; font-size: .95em; text-align: center;
+          padding: 6px 14px; border-bottom: 2px solid #ff6b6b;
+          animation: blink 1.6s infinite;
+        }
+        .estado-global.visible { display: block; }
+        .estado-global.sin-conexion { background: #7c2d12; border-bottom-color: #fb923c; }
+
+        /* 4. Control de sonido: el ESTADO tiene que verse siempre */
+        .ctrl-sonido { background: rgba(255,255,255,.1); border: 1px solid #30363d;
+                       color: #e6edf3; padding: 4px 10px; border-radius: 4px;
+                       cursor: pointer; font-size: .8em; margin-left: 5px; }
+        .ctrl-sonido.activo     { border-color: #2ea043; color: #7ee787; }
+        .ctrl-sonido.silenciado { color: #8b949e; }
+        .ctrl-sonido.bloqueado  { border-color: #d29922; color: #f2cc60; animation: blink 2s infinite; }
+
         footer { background: #0d1117; padding: 20px 15px; text-align: center; color: #8b949e; border-top: 1px solid #30363d; font-size: 0.75em; line-height: 1.8; }
         footer b { color: #c9d1d9; }
         footer a { color: #58a6ff; text-decoration: none; }
@@ -43,18 +99,23 @@
     </style>
 </head>
 <body>
-    <div id="audit-bar">
-        <div><strong>SISTEMA:</strong> <span id="sys-status" class="status-badge">...</span></div>
-        <div style="display: flex;">
-            <button id="btn-scale" class="btn-ui" onclick="toggleScale()">📈 Escala: Lineal</button>
-            <button class="btn-ui" onclick="toggleFullScreen()">🖥️ Fullscreen</button>
+    <div id="barra-superior">
+        <div id="estado-global" class="estado-global"></div>
+        <div id="aviso-nueva" class="aviso-nueva" title="Click para dar por visto y silenciar la repeticion"></div>
+        <div id="audit-bar">
+            <div><strong>SISTEMA:</strong> <span id="sys-status" class="status-badge">...</span></div>
+            <div style="display: flex;">
+                <button id="btn-scale" class="btn-ui" onclick="toggleScale()">📈 Escala: Lineal</button>
+                <button class="btn-ui" onclick="toggleFullScreen()">🖥️ Fullscreen</button>
+                <button id="btn-sonido" class="ctrl-sonido">🔔 Sonido</button>
+            </div>
+            <div>ACTUALIZACIÓN: <span id="last-sync">--:--</span></div>
         </div>
-        <div>ACTUALIZACIÓN: <span id="last-sync">--:--</span></div>
     </div>
     <header>
         <h1>Monitoreo Volcánico MIROVA</h1>
         <p>Análisis Térmico Satelital - MIROVA / OVDAS Chile</p>
-        
+
         <div class="legend-container">
             <div class="legend-row">
                 <strong>Confianza:</strong>
@@ -70,7 +131,7 @@
                 <span class="legend-item"><span class="legend-box" style="background: rgba(220,20,60,0.7);"></span> Muy Alto</span>
             </div>
         </div>
-        
+
         <div style="font-size: 0.7em; color: #6e7681; margin-top: 6px; font-style: italic;">
             ⏰ Todas las horas en UTC (Tiempo Universal Coordinado)
         </div>
@@ -84,19 +145,19 @@
             <strong>Fuente de Datos:</strong><br>
             <b>MIROVA</b> (University of Turin, IT - Dr. Diego Coppola) | <b>NASA FIRMS</b> | <b>VIIRS/MODIS Sensors</b>
         </div>
-        
+
         <div class="footer-section">
             <strong>Desarrollo:</strong><br>
             Sistema: <b>Nicolás Mendoza</b> | Asistencia Técnica: <b>Claude AI</b> (Anthropic)
         </div>
-        
+
         <div class="footer-section">
             <strong>Enlaces:</strong><br>
-            <a href="https://github.com/MendozaVolcanic/Mirova-v1" target="_blank">GitHub Repository</a> | 
-            <a href="https://www.mirovaweb.it/" target="_blank">MIROVA Web</a> | 
+            <a href="https://github.com/MendozaVolcanic/Mirova-v1" target="_blank">GitHub Repository</a> |
+            <a href="https://www.mirovaweb.it/" target="_blank">MIROVA Web</a> |
             <a href="https://www.sernageomin.cl/" target="_blank">SERNAGEOMIN</a>
         </div>
-        
+
         <div class="footer-section" style="margin-top: 15px; font-size: 0.85em;">
             © 2026 Sistema de Monitoreo Volcánico Automatizado - Chile
         </div>
@@ -112,14 +173,12 @@
         function toggleScale() {
             const btn = document.getElementById('btn-scale');
             const iframes = document.querySelectorAll('iframe:not(#modal-iframe)');
-            
+
             if (currentScale === "linear") {
                 currentScale = "log";
                 btn.innerText = "📉 Escala: Log";
                 btn.classList.add('btn-active');
                 iframes.forEach(iframe => {
-                    iframe._intentos = 0;
-                    armarWatchdog(iframe);
                     iframe.src = iframe.src.replace('/v_html/', '/v_html_log/');
                 });
             } else {
@@ -127,135 +186,456 @@
                 btn.innerText = "📈 Escala: Lineal";
                 btn.classList.remove('btn-active');
                 iframes.forEach(iframe => {
-                    iframe._intentos = 0;
-                    armarWatchdog(iframe);
                     iframe.src = iframe.src.replace('/v_html_log/', '/v_html/');
                 });
             }
         }
 
-        function toggleFullScreen() { 
-            if (!document.fullscreenElement) 
-                document.documentElement.requestFullscreen(); 
-            else 
-                document.exitFullscreen(); 
+        function toggleFullScreen() {
+            if (!document.fullscreenElement)
+                document.documentElement.requestFullscreen();
+            else
+                document.exitFullscreen();
         }
-        
-        function openModal(url) { 
+
+        function openModal(url) {
             if (currentScale === "log") {
                 url = url.replace('/v_html/', '/v_html_log/');
             }
-            
-            document.getElementById('modal-iframe').src = url; 
-            document.getElementById('modal-overlay').style.display = 'flex'; 
+
+            document.getElementById('modal-iframe').src = url;
+            document.getElementById('modal-overlay').style.display = 'flex';
         }
-        
-        function closeModal() { 
-            document.getElementById('modal-overlay').style.display = 'none'; 
-            document.getElementById('modal-iframe').src = ''; 
+
+        function closeModal() {
+            document.getElementById('modal-overlay').style.display = 'none';
+            document.getElementById('modal-iframe').src = '';
         }
-        
-        function descargarCSV(fileNombre) { 
+
+        function descargarCSV(fileNombre) {
             const url = `monitoreo_satelital/registro_${fileNombre}.csv?t=${new Date().getTime()}`;
             const a = document.createElement('a');
             a.href = url;
             a.download = `Historial_${fileNombre}.csv`;
             a.click();
         }
-        
-        // ============================================================
-        // Auto-reintento de graficos que no cargan (ej: 5xx transitorio de
-        // GitHub Pages -> pagina del "unicornio", o 404 momentaneo). Cada iframe
-        // es del MISMO origen que el dashboard, asi que tras cargar podemos leer
-        // su contenido: una pagina valida del sistema tiene el grafico de Plotly
-        // (.plotly-graph-div) O el cartel "SIN ANOMALIA TERMICA". Si no tiene
-        // ninguno, es una pagina de error -> recargamos SOLO ese recuadro, con
-        // backoff, hasta MAX_REINTENTOS. La recarga horaria global (arriba) queda
-        // como respaldo por si se agotan los reintentos.
-        const MAX_REINTENTOS = 3;
-        const ESPERA_MS = [2500, 5000, 10000];
-        const WATCHDOG_MS = 15000;
 
-        function paginaValida(iframe) {
-            try {
-                const doc = iframe.contentDocument || iframe.contentWindow.document;
-                if (!doc) return false;
-                if (doc.querySelector('.plotly-graph-div')) return true;          // grafico con datos
-                const txt = (doc.body && doc.body.textContent) || '';
-                if (/SIN ANOMAL/i.test(txt)) return true;                          // pagina valida sin datos
-                return false;                                                       // pagina de error
-            } catch (e) {
-                return false; // no legible (bloqueada/error) -> tratar como fallo
+        /* ==================================================================
+           AVISO DE DATOS NUEVOS — 3 capas (deteccion / visual / sonido)
+           Patron y trampas: ../GUIA_ALERTAS_DATOS_NUEVOS.md
+
+           Por que estas 2 fuentes y no otra: son EXACTAMENTE los 2 CSV que
+           lee visualizador.py para dibujar los graficos. Si un dato no esta
+           en ninguno de los dos, el panel no cambia -> no hay nada que avisar.
+           Mirar una sola haria que el otro scraper no avise nunca.
+
+           Tamano del lote (medido sobre el historico real, 1100 eventos de
+           llegada): p50 = 1 volcan por evento, p90 = 3, max 7 de 11. Por eso
+           la alerta es por EVENTO con los volcanes como detalle: nunca hay
+           riesgo de audios superpuestos.
+           ================================================================== */
+
+        const FUENTES = [
+            ['MAE', 'monitoreo_satelital/registro_vrp_maestro_publicable.csv'],
+            ['POS', 'monitoreo_satelital/registro_vrp_positivos.csv']
+        ];
+        const ALERTA_POLL_MS      = 3 * 60 * 1000;        // relevo de datos
+        const ALERTA_REPETICIONES = 3;                    // insiste hasta el acuse
+        const ALERTA_INTERVALO_MS = 10 * 60 * 1000;
+        const RESALTADO_MS        = 24 * 60 * 60 * 1000;  // el panel late 24 h
+        const ALERTA_AUDIO_URL    = 'audio/alerta_datos_nuevos.mp3';
+        const LKEY_VISTO          = 'mirova_datos_vistos';
+
+        // Nombre canonico de carpeta/archivo: igual que volcanes.archivo_volcan()
+        function archivoVolcan(n) { return n.replace(/ /g, '_').replace(/-/g, '_'); }
+
+        // CSV con comillas: la columna Nota_Validacion trae comas dentro del texto.
+        function parseCSV(txt) {
+            const filas = []; let campo = '', fila = [], enCom = false;
+            for (let i = 0; i < txt.length; i++) {
+                const c = txt[i];
+                if (enCom) {
+                    if (c === '"') { if (txt[i + 1] === '"') { campo += '"'; i++; } else enCom = false; }
+                    else campo += c;
+                } else if (c === '"') enCom = true;
+                else if (c === ',') { fila.push(campo); campo = ''; }
+                else if (c === '\n') { fila.push(campo); filas.push(fila); fila = []; campo = ''; }
+                else if (c !== '\r') campo += c;
+            }
+            if (campo !== '' || fila.length) { fila.push(campo); filas.push(fila); }
+            if (!filas.length) return [];
+            const cab = filas[0];
+            return filas.slice(1).filter(f => f.length > 1).map(f => {
+                const o = {}; cab.forEach((c, i) => o[c] = f[i]); return o;
+            });
+        }
+
+        // ---------- CAPA 1: DETECCION ----------
+        // Mapa "<fuente> <volcan>" -> ultima fecha satelital conocida.
+        // Fecha_Satelite_UTC es "YYYY-MM-DD HH:MM:SS": comparar como string
+        // es cronologico, sin parsear fechas.
+        async function mapaUltimos() {
+            const nc = Date.now();
+            const m = {};
+            let fallos = 0;
+            for (const [fuente, ruta] of FUENTES) {
+                try {
+                    const r = await fetch(ruta + '?nc=' + nc, { cache: 'no-store' });
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    for (const row of parseCSV(await r.text())) {
+                        const v = (row['Volcan'] || '').trim();
+                        const f = (row['Fecha_Satelite_UTC'] || '').trim();
+                        if (!v || !f) continue;
+                        const k = fuente + ' ' + archivoVolcan(v);
+                        if (!m[k] || f > m[k]) m[k] = f;
+                    }
+                } catch (e) {
+                    fallos++;
+                    console.warn('[alerta] no se pudo leer ' + ruta + ':', e);
+                }
+            }
+            // Si NINGUNA fuente respondio, no hay lectura valida: null, no {}.
+            // Devolver {} haria que el proximo ciclo viera "todo nuevo".
+            return fallos === FUENTES.length ? null : m;
+        }
+
+        function firma(m) {
+            return Object.keys(m).sort().map(k => k + ':' + m[k]).join('|');
+        }
+
+        // SOLO lo que avanzo (o aparecio). Un borrado por retencion cambia la
+        // firma pero NO es novedad -> no debe sonar.
+        function detectarNuevas(viejo, nuevo) {
+            const out = [];
+            for (const k of Object.keys(nuevo)) {
+                const antes = viejo[k];
+                if (!antes || nuevo[k] > antes) out.push(k);
+            }
+            return out.sort();
+        }
+
+        // ---------- CAPA 3: SONIDO ----------
+        const SonidoAlerta = (() => {
+            const LKEY = 'mirova_sonido_alerta';
+            let ctx = null, buffer = null;
+            let habilitado = localStorage.getItem(LKEY) !== 'off';
+
+            function crearCtx() {
+                if (ctx) return ctx;
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return null;
+                try { ctx = new AC(); } catch (e) { return null; }
+                return ctx;
+            }
+
+            // Decodificar NO requiere gesto del usuario; solo reproducir.
+            async function cargarBuffer() {
+                if (buffer || !crearCtx()) return;
+                try {
+                    const r = await fetch(ALERTA_AUDIO_URL);
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    buffer = await ctx.decodeAudioData(await r.arrayBuffer());
+                } catch (e) {
+                    // Esperado mientras no exista una locucion grabada: suena el chime.
+                    console.info('[alerta] sin locucion mp3, se usa el chime sintetizado');
+                    buffer = null;
+                }
+            }
+
+            function estado() {              // 'activo' | 'silenciado' | 'bloqueado'
+                if (!habilitado) return 'silenciado';
+                if (!ctx || ctx.state !== 'running') return 'bloqueado';
+                return 'activo';
+            }
+
+            function nota(freq, t0, dur, vol) {
+                const osc = ctx.createOscillator(), g = ctx.createGain();
+                osc.type = 'sine'; osc.frequency.value = freq;
+                g.gain.setValueAtTime(0.0001, t0);
+                g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+                osc.connect(g).connect(ctx.destination);
+                osc.start(t0); osc.stop(t0 + dur + 0.02);
+            }
+            function chime() {              // arpegio A5-C#6-E6 + repique
+                const t = ctx.currentTime + 0.02;
+                nota(880.00,  t,        0.26, .34);
+                nota(1108.73, t + 0.16, 0.26, .32);
+                nota(1318.51, t + 0.32, 0.42, .34);
+                nota(1318.51, t + 0.78, 0.42, .24);
+                return true;
+            }
+
+            // Devuelve true SOLO si realmente emitio. Nunca finge exito.
+            function sonar() {
+                if (!habilitado) return false;
+                if (!crearCtx()) return false;
+                if (ctx.state !== 'running') {
+                    ctx.resume().catch(() => {});
+                    if (ctx.state !== 'running') { pintarBoton(); return false; }
+                }
+                if (!buffer) return chime();
+                const src = ctx.createBufferSource();
+                src.buffer = buffer; src.connect(ctx.destination);
+                src.start(ctx.currentTime + 0.02);
+                return true;
+            }
+
+            async function activarCtx() {
+                crearCtx();
+                if (ctx && ctx.state !== 'running') { try { await ctx.resume(); } catch (e) {} }
+                await cargarBuffer();
+            }
+
+            // NO es un toggle ciego: si el estado es 'bloqueado' (preferencia ON
+            // pero audio suspendido), este click es el gesto que faltaba ->
+            // DESBLOQUEAR, no silenciar.
+            async function alternar() {
+                if (estado() === 'activo') {
+                    habilitado = false; localStorage.setItem(LKEY, 'off');
+                } else {
+                    habilitado = true; localStorage.setItem(LKEY, 'on');
+                    await activarCtx();
+                    sonar();                 // confirmacion audible
+                }
+                pintarBoton();
+            }
+
+            // Desbloqueo oportunista: cualquier click sirve de gesto.
+            // Excluye el PROPIO boton: si no, su pointerdown deja el contexto en
+            // 'running' ANTES del click y alternar() silenciaria justo cuando el
+            // operador quiso activar.
+            function engancharGestos() {
+                const intento = (ev) => {
+                    if (ev && ev.target && ev.target.closest && ev.target.closest('#btn-sonido')) return;
+                    if (!habilitado) return;
+                    crearCtx();
+                    if (ctx && ctx.state !== 'running') ctx.resume().then(pintarBoton).catch(() => {});
+                    else pintarBoton();
+                };
+                ['pointerdown', 'keydown'].forEach(e => document.addEventListener(e, intento, { passive: true }));
+            }
+
+            function pintarBoton() {
+                const b = document.getElementById('btn-sonido'); if (!b) return;
+                const e = estado();
+                b.classList.remove('activo', 'silenciado', 'bloqueado'); b.classList.add(e);
+                b.textContent = e === 'activo' ? '🔔 Sonido'
+                              : e === 'silenciado' ? '🔕 Silencio'
+                              : '⚠️ Activar sonido';
+                b.title = e === 'activo' ? 'Sonara cuando lleguen datos nuevos'
+                        : e === 'silenciado' ? 'Sonido desactivado (el aviso visual sigue)'
+                        : 'El navegador bloquea el audio: click para habilitarlo';
+            }
+
+            return { sonar, alternar, pintarBoton, engancharGestos, estado, cargarBuffer };
+        })();
+
+        // ---------- Secuencia: repeticion + COALESCENCIA ----------
+        const SecuenciaAlerta = (() => {
+            let activa = false, emitidas = 0, timer = null, acumuladas = [];
+
+            function mostrarAviso(lista) {
+                const el = document.getElementById('aviso-nueva'); if (!el) return;
+                const n = lista.length;
+                const detalle = lista.slice(0, 3).join(' · ') + (n > 3 ? ' · +' + (n - 3) + ' más' : '');
+                el.textContent = `🆕 ${n} ${n === 1 ? 'volcán' : 'volcanes'} con ${n === 1 ? 'dato nuevo' : 'datos nuevos'}: ${detalle}  —  (click para dar por visto)`;
+                el.classList.add('visible');
+            }
+            function emitir() {
+                emitidas++;
+                if (!SonidoAlerta.sonar()) {
+                    console.warn('[alerta] ' + emitidas + '/' + ALERTA_REPETICIONES +
+                                 ' NO emitida (audio ' + SonidoAlerta.estado() + ')');
+                }
+                if (emitidas >= ALERTA_REPETICIONES) { finalizar(); return; }
+                timer = setTimeout(emitir, ALERTA_INTERVALO_MS);
+            }
+            function finalizar() {
+                if (timer) { clearTimeout(timer); timer = null; }
+                activa = false; emitidas = 0; acumuladas = [];
+            }
+            function acusar() {                       // click del operador
+                const habia = activa; finalizar();
+                const el = document.getElementById('aviso-nueva');
+                if (el) el.classList.remove('visible');
+                return habia;
+            }
+            function notificar(nuevas) {
+                if (!nuevas || !nuevas.length) return;
+                for (const n of nuevas) if (!acumuladas.includes(n)) acumuladas.push(n);
+                mostrarAviso(acumuladas);             // el visual se actualiza SIEMPRE
+                if (activa) return;                   // COALESCENCIA: sin sonido extra
+                activa = true; emitidas = 0;
+                emitir();                             // 1a emision INMEDIATA
+            }
+            return { notificar, acusar, activa: () => activa };
+        })();
+
+        // ---------- CAPA 2: VISUAL POR VOLCAN ----------
+        // "Nuevo" = lo vimos aparecer hace menos de 24 h. Se guarda el INSTANTE
+        // de aparicion (no la fecha del dato): un dato con fecha de ayer puede
+        // llegar hoy, y para el turno lo que importa es cuando entro.
+        function leerVistos() {
+            try { return JSON.parse(localStorage.getItem(LKEY_VISTO)) || null; } catch (e) { return null; }
+        }
+        function guardarVistos(v) {
+            try { localStorage.setItem(LKEY_VISTO, JSON.stringify(v)); } catch (e) {}
+        }
+
+        // Ultima fecha por volcan (mezcla de las 2 fuentes) a partir del mapa.
+        function ultimasPorVolcan(mapa) {
+            const r = {};
+            for (const k of Object.keys(mapa)) {
+                const file = k.slice(k.indexOf(' ') + 1);
+                if (!r[file] || mapa[k] > r[file]) r[file] = mapa[k];
+            }
+            return r;
+        }
+
+        function actualizarVistos(mapa) {
+            const ahora = Date.now();
+            const ult = ultimasPorVolcan(mapa);
+            let vistos = leerVistos();
+            const primeraVez = (vistos === null);
+            if (primeraVez) vistos = {};
+            for (const file of Object.keys(ult)) {
+                const prev = vistos[file];
+                if (!prev || ult[file] > prev.fecha) {
+                    // primeraVez: registrar SIN resaltar (si no, la 1a visita
+                    // encenderia los 11 paneles).
+                    vistos[file] = { fecha: ult[file], visto: primeraVez ? 0 : ahora };
+                }
+            }
+            guardarVistos(vistos);
+            return vistos;
+        }
+
+        function pintarResaltados(vistos) {
+            const ahora = Date.now();
+            volcanes.forEach(v => {
+                const card = document.getElementById('card-' + v.file);
+                if (!card) return;
+                const reg = vistos[v.file];
+                const nuevo = reg && reg.visto && (ahora - reg.visto) < RESALTADO_MS;
+                card.classList.toggle('nueva-hoy', !!nuevo);
+                const h2 = card.querySelector('h2');
+                if (!h2) return;
+                let dot = h2.querySelector('.dot-nueva');
+                if (nuevo && !dot) {
+                    dot = document.createElement('span');
+                    dot.className = 'dot-nueva';
+                    h2.insertBefore(dot, h2.firstChild);
+                } else if (!nuevo && dot) dot.remove();
+            });
+        }
+
+        function recargarPanel(file) {
+            const ifr = document.getElementById('ifr-' + file);
+            if (!ifr) return;
+            const carpeta = currentScale === 'log' ? 'v_html_log' : 'v_html';
+            ifr.src = `monitoreo_satelital/${carpeta}/${file}.html?t=${Date.now()}`;
+        }
+
+        function bandaAlarma(texto, clase) {
+            const el = document.getElementById('estado-global'); if (!el) return;
+            if (!texto) { el.classList.remove('visible'); return; }
+            el.textContent = texto;
+            el.classList.remove('sin-conexion');
+            if (clase) el.classList.add(clase);
+            el.classList.add('visible');
+        }
+
+        // ---------- Ciclo ----------
+        let firmaActual = null, mapaActual = null, fallosSeguidos = 0;
+
+        async function ciclo() {
+            const mapa = await mapaUltimos();
+            if (mapa === null) {
+                // Nunca fallar en silencio: si no se puede leer, se avisa. Si no,
+                // "no suena nada" se confunde con "no llego nada".
+                fallosSeguidos++;
+                if (fallosSeguidos >= 2)
+                    bandaAlarma('⚠ SIN CONEXIÓN CON LOS DATOS — el aviso de datos nuevos no está operativo', 'sin-conexion');
+                return;
+            }
+            fallosSeguidos = 0;
+            bandaAlarma(null);
+
+            const f = firma(mapa);
+            if (firmaActual === null) {           // linea base: lo ya pintado NO es nuevo
+                firmaActual = f; mapaActual = mapa;
+                pintarResaltados(actualizarVistos(mapa));
+                return;
+            }
+            if (f === firmaActual) return;
+
+            const nuevas = detectarNuevas(mapaActual, mapa);
+            firmaActual = f; mapaActual = mapa;
+
+            const vistos = actualizarVistos(mapa);
+            pintarResaltados(vistos);
+
+            if (nuevas.length) {
+                // "MAE Lascar" / "POS Lascar" son el mismo panel: se muestra el
+                // volcan una sola vez aunque avancen las dos fuentes.
+                const files = [...new Set(nuevas.map(k => k.slice(k.indexOf(' ') + 1)))];
+                files.forEach(recargarPanel);
+                const nombres = files.map(fl => {
+                    const v = volcanes.find(x => x.file === fl);
+                    return v ? v.n : fl;
+                });
+                SecuenciaAlerta.notificar(nombres);
             }
         }
 
-        function armarWatchdog(iframe) {
-            clearTimeout(iframe._watchdog);
-            iframe._watchdog = setTimeout(() => manejarFallo(iframe), WATCHDOG_MS);
-        }
-
-        function manejarFallo(iframe) {
-            if ((iframe._intentos || 0) >= MAX_REINTENTOS) return; // se rinde; respaldo = recarga horaria
-            const espera = ESPERA_MS[Math.min(iframe._intentos || 0, ESPERA_MS.length - 1)];
-            iframe._intentos = (iframe._intentos || 0) + 1;
-            setTimeout(() => {
-                const base = iframe.src.split('?')[0];
-                armarWatchdog(iframe);
-                iframe.src = base + '?t=' + Date.now() + '&r=' + iframe._intentos;
-            }, espera);
-        }
-
-        function vigilar(iframe) {
-            if (!iframe) return;
-            iframe._intentos = 0;
-            iframe.addEventListener('load', () => {
-                clearTimeout(iframe._watchdog);
-                if (paginaValida(iframe)) {
-                    iframe._intentos = 0;         // cargo bien
-                } else {
-                    manejarFallo(iframe);         // pagina de error -> reintentar
-                }
-            });
-            armarWatchdog(iframe);
-        }
-
         async function init() {
-            const container = document.getElementById('galeria'); 
+            const container = document.getElementById('galeria');
             const ts = new Date().getTime();
-            
+
             volcanes.forEach(v => {
-                const card = document.createElement('div'); 
-                card.className = 'card'; 
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.id = 'card-' + v.file;
                 const url = `monitoreo_satelital/v_html/${v.file}.html?t=${ts}`;
-                
+
                 card.innerHTML = `
                     <div class="card-controls">
                         <button class="mini-btn" onclick="descargarCSV('${v.file}')">📥 CSV</button>
                         <button class="mini-btn" onclick="openModal('${url}')">⛶</button>
                     </div>
                     <div class="card-header-box">
-                        <h2>${v.n}</h2> 
+                        <h2>${v.n}</h2>
                         <span class="region-tag">(${v.r})</span>
                     </div>
-                    <iframe src="${url}" scrolling="no"></iframe>
+                    <iframe id="ifr-${v.file}" src="${url}" scrolling="no"></iframe>
                 `;
                 container.appendChild(card);
-                vigilar(card.querySelector('iframe'));
             });
-            
+
             fetch('monitoreo_satelital/estado_sistema.json?t=' + ts)
                 .then(r => r.json())
-                .then(data => { 
-                    document.getElementById('last-sync').innerText = data.ultima_actualizacion; 
-                    const st = document.getElementById('sys-status'); 
-                    st.innerText = data.estado; 
-                    st.style.color = data.color; 
+                .then(data => {
+                    document.getElementById('last-sync').innerText = data.ultima_actualizacion;
+                    const st = document.getElementById('sys-status');
+                    st.innerText = data.estado;
+                    st.style.color = data.color;
                 })
                 .catch(err => {
                     console.log('Estado del sistema no disponible');
                 });
+
+            // Cableado del aviso (despues del primer render: ver linea base)
+            document.getElementById('btn-sonido').addEventListener('click', () => SonidoAlerta.alternar());
+            document.getElementById('aviso-nueva').addEventListener('click', () => SecuenciaAlerta.acusar());
+            SonidoAlerta.engancharGestos();
+            SonidoAlerta.cargarBuffer();
+            SonidoAlerta.pintarBoton();
+
+            await ciclo();                        // fija la linea base
+            setInterval(ciclo, ALERTA_POLL_MS);
         }
-        
+
         window.onload = init;
     </script>
 </body>
