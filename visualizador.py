@@ -5,6 +5,10 @@ import os
 import pytz
 from datetime import datetime, timedelta
 
+# Parametros que dependen del entorno (GitHub vs instalacion local en OVDAS).
+# Por defecto reproduce el comportamiento de GitHub: ver config.py.
+import config
+
 ARCHIVO_MAESTRO = "monitoreo_satelital/registro_vrp_maestro_publicable.csv"
 ARCHIVO_POSITIVOS = "monitoreo_satelital/registro_vrp_positivos.csv"
 CARPETA_LINEAL = "monitoreo_satelital/v_html"
@@ -138,7 +142,9 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
             volcan_carpeta = partes[1]
             fecha_carpeta = partes[2]
             volcan_normalizado = volcan_carpeta.replace('-', '_').replace(' ', '_')
-            url_github = f"https://github.com/MendozaVolcanic/Mirova-v1/tree/main/monitoreo_satelital/imagenes_satelitales/{volcan_normalizado}/{fecha_carpeta}"
+            # Base configurable: el repo en GitHub, o la carpeta local servida
+            # por el servidor web cuando corre en OVDAS (ver config.py).
+            url_github = f"{config.URL_BASE_IMAGENES}/{volcan_normalizado}/{fecha_carpeta}"
             return url_github
         
         return None
@@ -414,6 +420,18 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
 def procesar():
     os.makedirs(CARPETA_LINEAL, exist_ok=True)
     os.makedirs(CARPETA_LOG, exist_ok=True)
+
+    # Modo 'directory' (instalacion local sin internet): plotly espera encontrar
+    # un plotly.min.js JUNTO a los HTML, pero NO lo escribe solo. Se copia el que
+    # trae el paquete instalado, una vez por carpeta (~4,5 MB compartidos, en vez
+    # de 4,5 MB dentro de cada uno de los 22 graficos).
+    if config.PLOTLY_JS == "directory":
+        from plotly.offline import get_plotlyjs
+        js = get_plotlyjs()
+        for carpeta_js in (CARPETA_LINEAL, CARPETA_LOG):
+            with open(os.path.join(carpeta_js, "plotly.min.js"), "w", encoding="utf-8") as f:
+                f.write(js)
+        print(f"[config] {config.resumen()}")
     
     if os.path.exists(ARCHIVO_MAESTRO):
         df = pd.read_csv(ARCHIVO_MAESTRO)
@@ -498,7 +516,7 @@ def procesar():
                 continue
             
             cfg = config_log if es_log else config_lineal
-            html_base = fig.to_html(config=cfg, include_plotlyjs='cdn')
+            html_base = fig.to_html(config=cfg, include_plotlyjs=config.PLOTLY_JS)
             
             script_modebar = """
 <style>
