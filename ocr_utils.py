@@ -933,7 +933,18 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
     # px -> km con geometría MEDIDA; fallback a calibración fija
     geometria = medir_geometria_panel(cv2.cvtColor(img_dist, cv2.COLOR_BGR2GRAY))
     if geometria:
-        dist_km = max(0.0, y_a_km(y_estrella, geometria))
+        km_crudo = y_a_km(y_estrella, geometria)
+        # Una estrella POR DEBAJO del eje de 0 km implica distancia NEGATIVA:
+        # geométricamente imposible, o sea la detección es espuria (el detector
+        # agarró algo que no es la estrella). Antes `max(0.0, ...)` la convertía
+        # en "0.00 km del cráter" con confianza ALTA -> alerta falsa dentro de
+        # radio (fail-open). Caso testigo: Tupungatito 1357.39 MW del 8-jul-2026,
+        # "Estrella verde en Y=360" con el eje en ~295 (= -8.8 km).
+        if km_crudo < -TOLERANCIA_KM:
+            return None, None, (f"Estrella {color} DESCARTADA: Y={y_estrella} cae "
+                                f"{abs(km_crudo):.1f} km por debajo del eje 0 km "
+                                f"(detección espuria){aviso_header}"), None
+        dist_km = max(0.0, km_crudo)
         dentro = dist_km <= limite_km + TOLERANCIA_KM
         base_nota = (f"Estrella {color} en Y={y_estrella} -> {dist_km:.2f} km "
                      f"(límite {limite_km} km, geometría medida){aviso_header}")
@@ -942,7 +953,11 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
         y_eje = coords['Y_EJE_X_PX']; y_lim = coords['Y_LIMITE_PX']
         y_lim_s = y_lim if img_dist.shape[0] == 600 else int(y_lim * sy)
         y_eje_s = y_eje if img_dist.shape[0] == 600 else int(y_eje * sy)
-        dist_km = max(0.0, (y_eje_s - y_estrella) / (y_eje_s - y_lim_s) * limite_km) if y_eje_s != y_lim_s else 0.0
+        km_crudo = ((y_eje_s - y_estrella) / (y_eje_s - y_lim_s) * limite_km) if y_eje_s != y_lim_s else 0.0
+        if km_crudo < -TOLERANCIA_KM:   # misma guarda que arriba, ver comentario
+            return None, None, (f"Estrella {color} DESCARTADA: Y={y_estrella} por debajo "
+                                f"del eje 0 km (Y={y_eje_s}, fallback){aviso_header}"), None
+        dist_km = max(0.0, km_crudo)
         dentro = y_estrella >= y_lim_s
         base_nota = (f"Estrella {color} en Y={y_estrella} -> {dist_km:.2f} km vs límite "
                      f"Y={y_lim_s} (fallback calibración fija){aviso_header}")
