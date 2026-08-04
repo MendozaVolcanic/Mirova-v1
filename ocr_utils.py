@@ -713,10 +713,22 @@ def analizar_puntos_distancia(img_dist_path, eventos, volcan_nombre, contexto_la
         return eventos
 
 
-def detectar_centro_estrella_verde(img_dist):
+def detectar_centro_estrella_verde(img_dist, panel=None):
     """
     V16: Detecta centro de estrella verde con FILTRO DE ZONA
     FIX: Solo busca en gráfico (Y>100, X>250), NO en interfaz
+
+    V30 `panel=(y_techo_25km, y_eje_0km)`: acota la búsqueda al panel
+    "Last Month", que es el único que se está midiendo. Dist.png trae DOS
+    paneles (Last Month arriba ~y110-295, Last Year abajo ~y345-530) y cada
+    uno dibuja SU propia estrella. Sin este acote el detector veía las dos y
+    la preferencia por la "zona típica" (Y 250-450) se montaba sobre el panel
+    de abajo: cuando la estrella de Last Month estaba ALTA (foco lejano, y<250)
+    quedaba fuera de esa ventana y se elegía la de Last Year (~y360), que
+    convertida con la escala de Last Month daba distancia negativa -> 0.00 km.
+    Es decir: los focos LEJANOS (los que hay que descartar) se leían como
+    "en el cráter". Medido: la estrella de Last Month está siempre en x=727 y
+    la de Last Year en x=733, pero 6 px no separan; la `y` dentro del panel sí.
     """
     if img_dist is None or img_dist.size == 0:
         return None
@@ -743,18 +755,27 @@ def detectar_centro_estrella_verde(img_dist):
         if len(contornos_validos) == 0:
             return None
         
-        # ===== PRIORIZAR ZONA TÍPICA DE ESTRELLA (Y=250-450) =====
+        # ===== ACOTAR AL PANEL QUE SE ESTÁ MIDIENDO =====
         contornos_estrella = []
         for c in contornos_validos:
             M = cv2.moments(c)
             if M['m00'] > 0:
                 cy = int(M['m01'] / M['m00'])
-                if 250 <= cy <= 450:  # Zona típica de estrella
+                if panel is not None:
+                    y_techo, y_eje = panel
+                    # margen de 1 px: la estrella de 25 km cae justo sobre el techo
+                    if y_techo - MARGEN_PANEL_PX <= cy <= y_eje + MARGEN_PANEL_PX:
+                        contornos_estrella.append(c)
+                elif 250 <= cy <= 450:   # legacy: sin panel, zona típica histórica
                     contornos_estrella.append(c)
-        
-        # Usar zona estrella si existe, sino usar todos
+
         if contornos_estrella:
             contorno_max = max(contornos_estrella, key=cv2.contourArea)
+        elif panel is not None:
+            # Con panel conocido, NO hay fallback a "todos": un verde fuera del
+            # panel no es la estrella de este gráfico. Antes ese fallback era
+            # justamente el que traía la estrella del panel de abajo.
+            return None
         else:
             contorno_max = max(contornos_validos, key=cv2.contourArea)
         
@@ -787,6 +808,7 @@ def detectar_centro_estrella_verde(img_dist):
 # ========================================
 
 TOLERANCIA_KM = 0.15  # ~1 px de ruido de render/centroide
+MARGEN_PANEL_PX = 2   # la estrella de 25 km cae justo sobre la línea del techo
 
 
 def medir_geometria_panel(img_gray):
@@ -869,12 +891,13 @@ def detectar_estrella_gris(img_dist, sy=1.0):
         return None
 
 
-def detectar_estrella_v2(img_dist, sy=1.0):
+def detectar_estrella_v2(img_dist, sy=1.0, panel=None):
     """
     V29: estrella verde (detector V16 preservado) o gris (nueva).
+    V30: `panel` acota al recuadro "Last Month" (ver detectar_centro_estrella_verde).
     Devuelve (color, y_centro) | (None, None).
     """
-    cy = detectar_centro_estrella_verde(img_dist)
+    cy = detectar_centro_estrella_verde(img_dist, panel=panel)
     if cy is not None:
         return 'verde', cy
     cy = detectar_estrella_gris(img_dist, sy)
@@ -914,7 +937,13 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
     limite_km = coords['LIMITE_KM']
     sy = img_dist.shape[0] / 600.0
 
-    color, y_estrella = detectar_estrella_v2(img_dist, sy)
+    # La geometría se mide ANTES de buscar la estrella: sus dos líneas
+    # (techo 25 km y eje 0 km) delimitan el panel "Last Month" y acotan la
+    # búsqueda a ese recuadro, que es el que corresponde a las últimas horas.
+    geometria = medir_geometria_panel(cv2.cvtColor(img_dist, cv2.COLOR_BGR2GRAY))
+    panel = geometria if geometria else (int(110 * sy), int(coords['Y_EJE_X_PX'] * sy))
+
+    color, y_estrella = detectar_estrella_v2(img_dist, sy, panel=panel)
     header = leer_header_anomalia(img_dist, sy)
 
     if y_estrella is None:
@@ -930,8 +959,7 @@ def validar_con_estrella_verde(img_dist, volcan_nombre):
         aviso_header = f" ⚠️header={header}≠{esperado}"
         print(f"      ⚠️ V29: color estrella ({color}) no coincide con header ({header})")
 
-    # px -> km con geometría MEDIDA; fallback a calibración fija
-    geometria = medir_geometria_panel(cv2.cvtColor(img_dist, cv2.COLOR_BGR2GRAY))
+    # px -> km con geometría MEDIDA (ya calculada arriba); fallback a calibración fija
     if geometria:
         km_crudo = y_a_km(y_estrella, geometria)
         # Una estrella POR DEBAJO del eje de 0 km implica distancia NEGATIVA:
