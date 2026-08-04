@@ -91,6 +91,66 @@
         .ctrl-sonido.silenciado { color: #8b949e; }
         .ctrl-sonido.bloqueado  { border-color: #d29922; color: #f2cc60; animation: blink 2s infinite; }
 
+        /* Modal de "ampliar" (boton ⛶). Estas reglas se habian perdido al
+           reescribir el dashboard: sin ellas el overlay no queda fijo y se
+           renderiza como un bloque visible al final de la pagina. */
+        #modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                         background: rgba(0,0,0,0.95); z-index: 2000;
+                         justify-content: center; align-items: center; }
+        .modal-content { width: 98%; height: 95%; background: #161b22; border: 1px solid #58a6ff;
+                         border-radius: 4px; position: relative; }
+        .close-modal { position: absolute; top: -10px; right: -10px; background: #ff4500; color: white;
+                       border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer;
+                       z-index: 2100; }
+        /* El grafico ampliado ahora ocupa TODO el modal (antes quedaba con el
+           alto fijo de 310px de la regla general de iframe). */
+        #modal-iframe { width: 100%; height: 100%; margin-top: 0; }
+
+        /* ============================================================
+           MODO FOCO — el dashboard ocupa TODA la pantalla disponible.
+           Pensado para la proyeccion de la sala de monitoreo: se ocultan
+           titulo, leyenda y pie, y la grilla se estira para que los 11
+           paneles entren completos sin scroll. El alto de cada grafico lo
+           define este CSS (por eso visualizador.py ya no fija height=300).
+           ============================================================ */
+        body.modo-foco { height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        body.modo-foco header,
+        body.modo-foco footer { display: none; }
+        body.modo-foco .grid {
+            flex: 1; min-height: 0;          /* min-height:0 = deja encoger al hijo flex */
+            grid-auto-rows: 1fr;             /* todas las filas se reparten el alto */
+            overflow: hidden;
+        }
+        body.modo-foco .card { display: flex; flex-direction: column; min-height: 0; }
+        body.modo-foco iframe { flex: 1; height: auto; min-height: 0; }
+
+        /* Columnas FIJAS en foco (no auto-fit): con 11 paneles, lo que decide la
+           legibilidad es el numero de FILAS, porque el alto es la dimension
+           escasa. 4 columnas => 3 filas. Con auto-fit, a 1280 px entraban 3
+           columnas => 4 filas y el grafico quedaba en ~126 px (ilegible). */
+        /* width/max-width/margin explicitos: la regla general trae
+           `max-width: 99.5%; margin: 0 auto`, y en un contenedor flex el margen
+           auto ANULA el estirado -> la grilla se encogia a su ancho de contenido
+           (a 1920 px quedaban ~700 px de pantalla sin usar). */
+        body.modo-foco .grid { grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 3px;
+                               width: 100%; max-width: 100%; margin: 0;
+                               box-sizing: border-box; }  /* el padding entra en el 100% */
+        @media (max-width: 1100px) { body.modo-foco .grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 800px)  { body.modo-foco .grid { grid-template-columns: repeat(2, 1fr); } }
+
+        /* Encabezado compacto: cada pixel que se le saca al titulo se lo gana
+           el grafico (son 11 tarjetas). */
+        body.modo-foco .card-header-box { padding: 3px 0 1px 0; }
+        body.modo-foco .card h2 { font-size: 0.95em; }
+        body.modo-foco .region-tag { font-size: 0.68em; }
+
+        /* En pantallas angostas caben pocas columnas y 11 filas serian ilegibles:
+           ahi se prioriza un alto minimo y se permite scroll. */
+        @media (max-width: 900px) {
+            body.modo-foco { overflow: auto; }
+            body.modo-foco .grid { grid-auto-rows: minmax(220px, 1fr); overflow: auto; }
+        }
+
         footer { background: #0d1117; padding: 20px 15px; text-align: center; color: #8b949e; border-top: 1px solid #30363d; font-size: 0.75em; line-height: 1.8; }
         footer b { color: #c9d1d9; }
         footer a { color: #58a6ff; text-decoration: none; }
@@ -106,6 +166,7 @@
             <div><strong>SISTEMA:</strong> <span id="sys-status" class="status-badge">...</span></div>
             <div style="display: flex;">
                 <button id="btn-scale" class="btn-ui" onclick="toggleScale()">📈 Escala: Lineal</button>
+                <button id="btn-foco" class="btn-ui" onclick="toggleFoco()">🎯 Foco</button>
                 <button class="btn-ui" onclick="toggleFullScreen()">🖥️ Fullscreen</button>
                 <button id="btn-sonido" class="ctrl-sonido">🔔 Sonido</button>
             </div>
@@ -197,6 +258,51 @@
             else
                 document.exitFullscreen();
         }
+
+        /* ---------- MODO FOCO ----------
+           La preferencia se guarda: el dashboard se recarga solo cada 1 h y un
+           kiosco tiene que seguir en foco despues de recargar. */
+        const LKEY_FOCO = 'mirova_modo_foco';
+
+        function avisarResizeGraficos() {
+            // Los graficos son responsive, pero se les avisa explicitamente para
+            // que redibujen apenas cambia el tamano de la tarjeta.
+            requestAnimationFrame(() => {
+                document.querySelectorAll('iframe:not(#modal-iframe)').forEach(f => {
+                    try { f.contentWindow.dispatchEvent(new Event('resize')); } catch (e) {}
+                });
+            });
+        }
+
+        function aplicarFoco(activo, guardar = true) {
+            document.body.classList.toggle('modo-foco', activo);
+            const b = document.getElementById('btn-foco');
+            if (b) {
+                b.classList.toggle('btn-active', activo);
+                b.textContent = activo ? '🎯 Foco: ON' : '🎯 Foco';
+                b.title = activo ? 'Volver a la vista normal (con titulo, leyenda y pie)'
+                                 : 'Ocupar toda la pantalla con los paneles';
+            }
+            if (guardar) localStorage.setItem(LKEY_FOCO, activo ? 'on' : 'off');
+            avisarResizeGraficos();
+        }
+
+        function toggleFoco() {
+            aplicarFoco(!document.body.classList.contains('modo-foco'));
+        }
+
+        // Pantalla completa = "desplegado": entra en foco automaticamente y al
+        // salir vuelve a como estaba, SIN pisar la preferencia guardada.
+        let focoPrevio = null;
+        document.addEventListener('fullscreenchange', () => {
+            if (document.fullscreenElement) {
+                focoPrevio = document.body.classList.contains('modo-foco');
+                aplicarFoco(true, false);
+            } else if (focoPrevio !== null) {
+                aplicarFoco(focoPrevio, false);
+                focoPrevio = null;
+            }
+        });
 
         function openModal(url) {
             if (currentScale === "log") {
@@ -624,6 +730,9 @@
                 .catch(err => {
                     console.log('Estado del sistema no disponible');
                 });
+
+            // Modo foco: restaurar la preferencia guardada (sobrevive la recarga horaria)
+            aplicarFoco(localStorage.getItem(LKEY_FOCO) === 'on', false);
 
             // Cableado del aviso (despues del primer render: ver linea base)
             document.getElementById('btn-sonido').addEventListener('click', () => SonidoAlerta.alternar());
