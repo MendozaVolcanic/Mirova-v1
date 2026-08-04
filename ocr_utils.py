@@ -338,6 +338,94 @@ def asociar_grupos_a_eventos(eventos, grupos, roi_y_start):
 # (fecha_y1, fecha_y2, vrp_y1, vrp_y2) de cada fila de la grilla, en 850x600
 FILAS_GRILLA_NTI = [(140, 168, 313, 342), (376, 404, 548, 578)]
 ANCHO_COL_NTI = 170
+
+# V30: banda-y de la linea "ZEN =65 - AZI=103N" de cada celda. Medida sobre la
+# muestra (los tokens caen en y 338-346 y 573-581); se toma un margen. Ojo: se
+# SOLAPA con la banda del VRP, y por eso este texto ya pasaba por Tesseract y se
+# descartaba: faltaba el patron que lo capturara, no la lectura.
+FILAS_ZENAZI_NTI = [(330, 352), (565, 587)]
+
+# Confusiones tipicas de Tesseract EN CONTEXTO NUMERICO CONOCIDO (estos campos son
+# angulos, siempre numericos). Medido: sin esto AZI se lee al 86.5%, con esto 100%
+# (el fallo dominante era "8" leido como "B": "AZI =B3N" por "83").
+_MAPA_DIGITOS = str.maketrans({'B': '8', 'O': '0', 'o': '0', 'l': '1', 'I': '1',
+                               '|': '1', 'S': '5', 'Z': '2', 'g': '9'})
+
+# La "I" de AZI se confunde con |, 1, l; la "Z" con 2. Se tolera todo eso.
+_RE_ZEN = re.compile(r'Z\s*E\s*N\s*[=~;:\s]*(-?[\dBOolI|SZg]{1,2})', re.I)
+_RE_AZI = re.compile(r'A\s*[Z2]\s*[I|l1i]?\s*[=~;:\s]*(-?[\dBOolI|SZg]{1,3})', re.I)
+
+# Niveles que publica el banner de MIROVA (su propia clasificacion, distinta de la
+# que calculamos con la escala de Coppola en volcanes.clasificacion_mirova).
+_NIVELES_MIROVA = ('VERY LOW', 'LOW', 'MODERATE', 'HIGH', 'VERY HIGH', 'EXTREME', 'NONE')
+_RE_NIVEL = re.compile(r'anomal[yv]\s*[:;.]?\s*([A-Za-z ]{3,14})', re.I)
+
+
+def _a_entero(s):
+    """Texto OCR de un angulo -> int, o None si no es interpretable."""
+    try:
+        return int(s.translate(_MAPA_DIGITOS))
+    except (ValueError, AttributeError):
+        return None
+
+
+def leer_zen_azi(texto):
+    """
+    V30: extrae (zenith, azimut) del satelite de la linea de una celda.
+
+    Por que importa: el angulo cenital condiciona cuanta atmosfera atraviesa la
+    observacion y el tamano efectivo del pixel; una anomalia vista a 65 grados no
+    es comparable con una vista a 10. MIROVA lo publica por adquisicion y hasta
+    ahora lo estabamos descartando.
+
+    Rangos fisicos: zenith 0-90 (fuera de eso es basura de OCR y se descarta);
+    azimut -180..180 respecto al Norte.
+    Devuelve (zen|None, azi|None) — nunca inventa: si no se lee, es None.
+    """
+    if not texto:
+        return None, None
+    mz = _RE_ZEN.search(texto)
+    ma = _RE_AZI.search(texto)
+    zen = _a_entero(mz.group(1)) if mz else None
+    azi = _a_entero(ma.group(1)) if ma else None
+    if zen is not None and not (0 <= zen <= 90):
+        zen = None
+    if azi is not None and not (-180 <= azi <= 180):
+        azi = None
+    return zen, azi
+
+
+def leer_nivel_anomalia(img_bgr):
+    """
+    V30: nivel de anomalia que declara el BANNER de MIROVA ("Thermal anomaly: LOW").
+
+    OJO: NO es lo mismo que la columna 'Clasificacion Mirova', que la calculamos
+    nosotros desde el VRP con la escala de Coppola. Guardar el banner permite
+    cruzar ambas (MIROVA trunca el VRP en VIIRS750/MODIS, asi que pueden diferir).
+
+    Verificado 20/20: el "Last Update" del banner coincide siempre con la celda
+    MAS RECIENTE -> este nivel corresponde solo a esa adquisicion, no a las 10.
+    Devuelve el nivel con guion bajo (sin comas ni espacios, para el CSV) o cadena vacia.
+    """
+    try:
+        sy = img_bgr.shape[0] / 600.0
+        roi = img_bgr[int(45 * sy):int(78 * sy), 440:850]
+        if roi.size == 0:
+            return ''
+        g = cv2.resize(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY), None,
+                       fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        t = pytesseract.image_to_string(g, config='--oem 3 --psm 6').replace('\n', ' ')
+        m = _RE_NIVEL.search(t)
+        if not m:
+            return ''
+        cand = m.group(1).strip().upper().rstrip('.').strip()
+        for niv in sorted(_NIVELES_MIROVA, key=len, reverse=True):
+            if cand.startswith(niv):
+                return niv.replace(' ', '_')
+    except Exception:
+        pass
+    return ''
+
 PATRON_FECHA_NTI = re.compile(r'(\d{1,2})-([A-Za-z]{3})-(\d{4})\s+(\d{2}:\d{2}:\d{2})')
 
 
@@ -374,13 +462,17 @@ def extraer_eventos_espacial(img_path):
         h = img.shape[0]
         sy = h / 600.0  # adaptación a la variante 850x596
 
-        for (fy1, fy2, vy1, vy2) in FILAS_GRILLA_NTI:
+        for idx_fila, (fy1, fy2, vy1, vy2) in enumerate(FILAS_GRILLA_NTI):
             celdas_f = {c: [] for c in range(5)}
             celdas_v = {c: [] for c in range(5)}
+            celdas_z = {c: [] for c in range(5)}
             for x, t in _palabras_con_posicion(img, int(fy1 * sy), int(fy2 * sy)):
                 celdas_f[min(4, max(0, int((x - 5) / ANCHO_COL_NTI)))].append(t)
             for x, t in _palabras_con_posicion(img, int(vy1 * sy), int(vy2 * sy)):
                 celdas_v[min(4, max(0, int((x - 5) / ANCHO_COL_NTI)))].append(t)
+            zy1, zy2 = FILAS_ZENAZI_NTI[idx_fila]
+            for x, t in _palabras_con_posicion(img, int(zy1 * sy), int(zy2 * sy)):
+                celdas_z[min(4, max(0, int((x - 5) / ANCHO_COL_NTI)))].append(t)
 
             for c in range(5):
                 tf = _normalizar_texto_ocr(' '.join(celdas_f[c]))
@@ -397,10 +489,13 @@ def extraer_eventos_espacial(img_path):
                 dt_utc = dt_obj.replace(tzinfo=pytz.utc)
                 vrp_str = mv.group(1)
                 vrp_mw = 0.0 if vrp_str.lower() == 'nan' else float(vrp_str)
+                zen, azi = leer_zen_azi(' '.join(celdas_z[c]))
                 eventos.append({
                     'datetime': dt_utc,
                     'timestamp': int(dt_utc.timestamp()),
-                    'vrp_mw': vrp_mw
+                    'vrp_mw': vrp_mw,
+                    'zen': zen,
+                    'azi': azi
                 })
     except Exception as e:
         print(f"   ❌ ERROR en extraer_eventos_espacial: {e}")
@@ -419,15 +514,33 @@ def extraer_eventos_latest10nti(img_path):
     print(f"   📐 Espacial: {len(eventos_esp)} eventos")
 
     if len(eventos_esp) >= 10:
-        return sorted(eventos_esp, key=lambda e: e['timestamp'], reverse=True)
+        return _marcar_mas_reciente(
+            sorted(eventos_esp, key=lambda e: e['timestamp'], reverse=True), img_path)
 
     # Fallback: método por página completa (si el espacial logró <10 pares)
     eventos_leg = _extraer_eventos_pagina_completa(img_path)
     if len(eventos_leg) > len(eventos_esp):
         print(f"   ⚠️ Fallback página completa: {len(eventos_leg)} > {len(eventos_esp)} "
               f"(emparejado por orden — riesgo de corrimiento)")
-        return sorted(eventos_leg, key=lambda e: e['timestamp'], reverse=True)
-    return sorted(eventos_esp, key=lambda e: e['timestamp'], reverse=True)
+        return _marcar_mas_reciente(
+            sorted(eventos_leg, key=lambda e: e['timestamp'], reverse=True), img_path)
+    return _marcar_mas_reciente(
+        sorted(eventos_esp, key=lambda e: e['timestamp'], reverse=True), img_path)
+
+
+def _marcar_mas_reciente(eventos, img_path):
+    """Adjunta el nivel del banner SOLO al evento mas reciente (verificado 20/20:
+    el 'Last Update' del banner == la celda mas nueva). En los demas queda vacio:
+    poner el nivel de hoy en una pasada de hace 3 dias seria inventar el dato."""
+    if not eventos:
+        return eventos
+    try:
+        img = cv2.imread(img_path)
+        if img is not None:
+            eventos[0]['nivel_mirova'] = leer_nivel_anomalia(img)
+    except Exception:
+        pass
+    return eventos
 
 
 def _extraer_eventos_pagina_completa(img_path):
