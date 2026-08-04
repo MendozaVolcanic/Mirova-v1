@@ -40,6 +40,10 @@ from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 
+# VRP (MW) desde el cual una detección en pasada DIURNA se marca como posible
+# artefacto (cirrus / reflexión solar). Ver justificación en el uso, más abajo.
+UMBRAL_VRP_DIURNO_SOSPECHOSO = 10.0
+
 CARPETA_PRINCIPAL = "monitoreo_satelital"
 CARPETA_TEMP = os.path.join(CARPETA_PRINCIPAL, "ocr_temp")
 CARPETA_IMAGENES = os.path.join(CARPETA_PRINCIPAL, "imagenes_satelitales")
@@ -346,6 +350,36 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             nota_final += (f" | ⚠️ VRP truncado por MIROVA en {sensor}: "
                            f"real ∈ [{int(vrp_mw)}, {int(vrp_mw)+1}) MW (±1)")
 
+        confianza_final = clasificacion['confianza']
+        requiere_ver = clasificacion['requiere_verificacion']
+
+        # Distancia: si el clasificador NO pudo medirla se guardaba 0.0 en silencio,
+        # o sea "en el cráter" -> dentro de radio automático (fail-open). Se sigue
+        # guardando 0.0 para no cambiar el esquema del CSV, pero queda marcado:
+        # "no medida" no es lo mismo que "cero".
+        dist_medida = clasificacion.get('distancia_km')
+        if dist_medida is None:
+            nota_final += (" | ⚠️ distancia NO medida (se registra 0.0 por compatibilidad "
+                           "de esquema; el geofence NO pudo verificarse)")
+            requiere_ver = True
+
+        # Artefactos diurnos: la pasada satelital confiable para térmico es la
+        # NOCTURNA (sin sol). En pasada diurna, cirrus y reflexión solar producen
+        # VRP altos espurios que MIROVA grafica en el momento pero después no lista
+        # en latest.php -> el sweep de reconciliación no los puede corregir.
+        # Umbral calibrado sobre el histórico (ago-2026): las alertas OCR tienen
+        # mediana 0.38 y p99 5.51 MW, y NO hay ningún evento nocturno >= 10 MW.
+        # Con 10 MW se marcan 5 eventos (0.7%), justo la familia sospechosa
+        # (1357, 761, 37, 19, 15 MW). Marcar != descartar: el dato crudo se guarda
+        # igual y el dashboard lo pinta ámbar por confianza 'media'.
+        if 12 <= dt_utc.hour <= 23 and vrp_mw >= UMBRAL_VRP_DIURNO_SOSPECHOSO:
+            nota_final += (f" | ⚠️ CANDIDATO A ARTEFACTO: {vrp_mw:.2f} MW en pasada DIURNA "
+                           f"({dt_utc.hour:02d}h UTC). Posible cirrus/reflexión solar; "
+                           f"verificar contra la imagen antes de usarlo.")
+            requiere_ver = True
+            if confianza_final == 'alta':
+                confianza_final = 'media'
+
         # Crear registro
         nuevo_evento = {
             'timestamp': ts,
@@ -358,7 +392,7 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'VRP_MW': vrp_mw,
             # Distancia APROX desde el cráter (geometría medida del ROI; ±~0.2-0.3 km).
             # Antes era 0.0 fijo aunque el clasificador ya la calculaba (V29.2).
-            'Distancia_km': round(clasificacion.get('distancia_km') or 0.0, 2),
+            'Distancia_km': round(dist_medida, 2) if dist_medida is not None else 0.0,
             'Tipo_Registro': clasificacion['tipo_registro'],
             'Clasificacion Mirova': etiqueta_mirova,
             'Ruta Foto': ruta_foto,
@@ -366,8 +400,8 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Ultima_Actualizacion': ahora_cl,
             'Editado': 'NO',
             'Color_Punto_Dist': evento.get('color_punto', 'sin_punto'),
-            'Confianza_Validacion': clasificacion['confianza'],
-            'Requiere_Verificacion': clasificacion['requiere_verificacion'],
+            'Confianza_Validacion': confianza_final,
+            'Requiere_Verificacion': requiere_ver,
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
             'Nota_Validacion': nota_final,
             'Version_OCR': '29.2'  # V29.2: distancia aprox persistida + nota precisión
