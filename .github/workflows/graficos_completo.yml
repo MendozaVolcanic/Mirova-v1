@@ -131,7 +131,14 @@ jobs:
           # cache-buster por-run: evita que el CDN de Pages devuelva un hash viejo
           PUB=$(curl -fsS --max-time 20 "https://mendozavolcanic.github.io/Mirova-v1/deploy_data_hash.txt?nc=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" 2>/dev/null || echo "")
           echo "$NEW" > _site/deploy_data_hash.txt
-          if [ "$NEW" = "$PUB" ]; then
+          # Una corrida MANUAL siempre publica: es un pedido explicito de una
+          # persona, y sin esto no habia forma de forzar una republicacion
+          # cuando el sitio queda desincronizado del repo (p.ej. si un deploy
+          # publico graficos viejos y despues el hash no volvio a cambiar).
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Corrida manual: se publica igual (hash actual $NEW)."
+          elif [ "$NEW" = "$PUB" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Datos-fuente sin cambios (hash $NEW). Se omite el deploy a Pages."
           else
