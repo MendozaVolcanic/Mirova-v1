@@ -58,7 +58,11 @@ COLUMNAS_OCR = [
     "Clasificacion Mirova", "Ruta Foto", "Fecha_Proceso_GitHub",
     "Ultima_Actualizacion", "Editado",
     "Color_Punto_Dist", "Confianza_Validacion", "Requiere_Verificacion",
-    "Metodo_Validacion", "Nota_Validacion", "Version_OCR"
+    "Metodo_Validacion", "Nota_Validacion", "Version_OCR",
+    # V30 — geometria de observacion leida de Latest10NTI (se AGREGAN al final:
+    # el CSV lo consume VRP Chile y su frontend parte por split(",") sin comillas,
+    # asi que ningun valor puede traer coma, y toda fila lleva todas las columnas).
+    'Zenith_Sat_deg', 'Azimut_Sat_deg', 'Nivel_Anomalia_MIROVA', 'Confianza_Geometria',
 ]
 
 # =========================
@@ -403,8 +407,26 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Confianza_Validacion': confianza_final,
             'Requiere_Verificacion': requiere_ver,
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
+            # Geometria de observacion del satelite (V30). Enteros sin simbolo de
+            # grado: el simbolo es no-ASCII y no aporta. Vacio si el OCR no pudo
+            # leerlo -> nunca "None" ni "nan" (los consumidores leen por nombre y
+            # esperan celdas vacias, no literales).
+            'Zenith_Sat_deg': '' if evento.get('zen') is None else str(evento['zen']),
+            'Azimut_Sat_deg': '' if evento.get('azi') is None else str(evento['azi']),
+            # Nivel que declara el BANNER de MIROVA. Distinto de 'Clasificacion
+            # Mirova', que la calculamos con la escala de Coppola. Solo se puebla
+            # en la adquisicion mas reciente de cada imagen (verificado 20/20: el
+            # "Last Update" del banner coincide con esa celda). Guion bajo, sin coma.
+            'Nivel_Anomalia_MIROVA': evento.get('nivel_mirova', ''),
+            # Trazabilidad de los dos campos de arriba, como Confianza_Validacion
+            # lo es del resto: un numero sin procedencia no sirve para auditar.
+            'Confianza_Geometria': ('alta' if (evento.get('zen') is not None and
+                                               evento.get('azi') is not None)
+                                    else 'parcial' if (evento.get('zen') is not None or
+                                                       evento.get('azi') is not None)
+                                    else ''),
             'Nota_Validacion': nota_final,
-            'Version_OCR': '29.2'  # V29.2: distancia aprox persistida + nota precisión
+            'Version_OCR': '30.0'  # V30: + geometria de observacion (ZEN/AZI) y nivel del banner MIROVA
         }
         
         eventos_nuevos.append(nuevo_evento)
