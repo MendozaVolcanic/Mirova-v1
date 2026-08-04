@@ -398,7 +398,11 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
     
     fig.update_layout(
         template="plotly_dark",
-        height=300,
+        # Sin alto fijo: el gráfico ocupa el 100% del iframe que lo contiene, así
+        # el dashboard puede agrandarlo (modo foco / pantalla completa) sin que
+        # quede una banda muerta debajo. El alto real lo decide el CSS del
+        # dashboard; acá solo se pide que Plotly se adapte al contenedor.
+        height=None,
         margin=dict(l=40, r=2, t=35, b=40),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
@@ -468,7 +472,9 @@ def procesar():
     config_log = {
         'displayModeBar': True,
         'displaylogo': False,
-        'responsive': False,
+        # igual que el lineal: si no, el gráfico log no se redimensiona al
+        # cambiar el tamaño de la tarjeta (quedaba cortado en modo foco).
+        'responsive': True,
         'modeBarButtonsToRemove': [
             'select2d',
             'lasso2d',
@@ -520,6 +526,12 @@ def procesar():
             
             script_modebar = """
 <style>
+/* El div de Plotly se genera con height:100%; sin esto el <body> no tiene
+   altura propia y el gráfico colapsa. Con esto, el gráfico mide exactamente
+   lo que mida el iframe. */
+html, body { height: 100%; margin: 0; overflow: hidden; }
+.plotly-graph-div { height: 100% !important; width: 100% !important; }
+
 .modebar {
     opacity: 0;
     transition: opacity 0.3s ease;
