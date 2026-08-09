@@ -44,10 +44,22 @@ jobs:
           git add monitoreo_satelital/
           if ! git diff --quiet --staged; then
             git commit -m "Auto: Sincronización de datos e imágenes"
+            # Push con reintentos. Cinco workflows escriben main y cada uno
+            # tiene su propio grupo de concurrency, así que la concurrency no
+            # los protege entre sí: entre el pull y el push hay una ventana de
+            # segundos en la que otro workflow puede empujar primero y el push
+            # se rechaza con "cannot lock ref". Por eso el pull va DENTRO del
+            # bucle, para rebasar sobre lo que haya llegado en el intento
+            # anterior. Este workflow es el más frecuente del repo (~446
+            # corridas en 14 días), o sea el que más expuesto está a la carrera.
             # --autostash: tolera modificaciones no stageadas (ej. archivos
             # regenerados por el runner) que harían fallar el rebase
-            git pull origin main --rebase --autostash -X ours
-            git push origin main
+            for i in 1 2 3 4 5; do
+              git pull origin main --rebase --autostash -X ours || true
+              if git push origin main; then echo "✅ push OK (intento $i)"; exit 0; fi
+              echo "⚠️ push rechazado, reintento $i..."; sleep $((i*3))
+            done
+            echo "❌ push falló tras 5 intentos"; exit 1
           else
             echo "No hay cambios nuevos para subir."
           fi
