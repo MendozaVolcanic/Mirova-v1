@@ -129,7 +129,11 @@ jobs:
             exit 0
           fi
           git commit -m "curaduria: ${{ inputs.accion }} artefacto ${{ inputs.volcan }} ts=${{ inputs.timestamp }}"
+          pushed=0
           for i in 1 2 3; do
-            if git push origin HEAD:main; then echo "push OK"; break; fi
+            if git push origin HEAD:main; then echo "push OK"; pushed=1; break; fi
             echo "push fallo, reintento $i"; git pull --rebase origin main || true; sleep 2
           done
+          # Sin esto, agotar los reintentos terminaba el step en verde y la
+          # anotación de curaduría quedaba sin publicar, en silencio.
+          if [ $pushed -eq 0 ]; then echo "❌ push falló tras 3 intentos"; exit 1; fi
