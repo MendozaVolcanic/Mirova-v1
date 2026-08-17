@@ -53,6 +53,7 @@ jobs:
         run: python visualizador.py
 
       - name: Guardar en GitHub
+        id: guardar
         run: |
           git config --global user.name "VolcanoVisualizer"
           git config --global user.email "viz@volcano.com"
@@ -68,10 +69,12 @@ jobs:
             
             max_retries=3
             retry_count=0
-            
+            pushed=0
+
             while [ $retry_count -lt $max_retries ]; do
               if git push origin main; then
                 echo "✅ Push exitoso"
+                pushed=1
                 break
               else
                 retry_count=$((retry_count + 1))
@@ -83,6 +86,18 @@ jobs:
                 fi
               fi
             done
+
+            # Agotar los 3 reintentos dejaba el step en verde con el commit sin
+            # publicar, y nadie se enteraba. Pero NO se falla acá: el push es el
+            # step 6 de 14 y abortar saltaría el deploy a Pages, que sirve
+            # `_site` construido en el runner y por lo tanto SÍ puede publicar
+            # los gráficos aunque el repo se haya quedado atrás. Se marca el
+            # fallo y lo levanta el step final "Estado del deploy": el dato
+            # llega al sitio igual y el run igual termina en rojo.
+            if [ $pushed -eq 0 ]; then
+              echo "❌ Push falló después de $max_retries intentos"
+              echo "push_fallido=true" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "No hay cambios nuevos para subir."
           fi
@@ -177,6 +192,7 @@ jobs:
         uses: actions/deploy-pages@v5
 
       - name: Estado del deploy
+        if: always()
         run: |
           if [ "${{ steps.datahash.outputs.changed }}" != "true" ]; then
             echo "Sin cambios en los datos-fuente; deploy omitido (correcto)."
@@ -186,4 +202,13 @@ jobs:
             echo "AVISO: deploy fallo (rechazo transitorio de Pages). El proximo ciclo"
             echo "con datos nuevos lo reintentara; el run NO se marca como fallido a"
             echo "proposito, para no inundar el mail."
+          fi
+
+          # El push a main SI marca el run como fallido: significa que el repo
+          # quedo sin los graficos que el sitio ya esta mostrando, y eso hay que
+          # mirarlo. A diferencia del deploy, no se auto-sana solo.
+          if [ "${{ steps.guardar.outputs.push_fallido }}" = "true" ]; then
+            echo "❌ El push a main fallo tras agotar los reintentos: el repositorio"
+            echo "   quedo desincronizado. Revisar la carrera entre workflows."
+            exit 1
           fi
