@@ -42,7 +42,39 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # =====================================================================
+      # Regenerar los graficos SOLO si cambiaron los datos-fuente.
+      # visualizador.py reescribe los 21 HTML en cada ciclo, pero el unico
+      # cambio real es el UUID aleatorio que Plotly le pone al <div> y el
+      # timestamp de estado_sistema.json: el contenido graficado es identico.
+      # Eso producia ~290 commits/dia de puro ruido (44% de los commits del
+      # repo), y cada commit es una oportunidad de carrera de push contra los
+      # otros workflows que escriben main.
+      # Se compara el mismo hash normalizado que ya decide el deploy, pero
+      # contra el guardado en el repo (no contra el publicado en Pages), que es
+      # la pregunta correcta para decidir si hay algo nuevo que COMMITEAR.
+      # Direccion de fallo segura: si el archivo de hash falta o no coincide se
+      # regenera de mas, nunca de menos.
+      # =====================================================================
+      - name: Decidir si hay que regenerar los graficos
+        id: datos
+        run: |
+          NEW=$(python scripts/deploy_hash.py)
+          OLD=$(cat monitoreo_satelital/.graficos_hash 2>/dev/null || echo "")
+          echo "hash=$NEW" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "regenerar=true" >> "$GITHUB_OUTPUT"
+            echo "Corrida manual: se regenera igual (hash actual $NEW)."
+          elif [ "$NEW" = "$OLD" ]; then
+            echo "regenerar=false" >> "$GITHUB_OUTPUT"
+            echo "Datos-fuente sin cambios (hash $NEW). Se omite regenerar y commitear."
+          else
+            echo "regenerar=true" >> "$GITHUB_OUTPUT"
+            echo "Datos nuevos -> guardado=[$OLD] actual=[$NEW]. Se regenera."
+          fi
+
       - name: Preparar entorno
+        if: steps.datos.outputs.regenerar == 'true'
         run: |
           mkdir -p monitoreo_satelital/v_html/
           mkdir -p monitoreo_satelital/v_html_log/
@@ -50,19 +82,26 @@ jobs:
           rm -rf monitoreo_satelital/v_html_log/*
 
       - name: Ejecutar el Visualizador
+        if: steps.datos.outputs.regenerar == 'true'
         run: python visualizador.py
 
       - name: Guardar en GitHub
         id: guardar
+        if: steps.datos.outputs.regenerar == 'true'
         run: |
           git config --global user.name "VolcanoVisualizer"
           git config --global user.email "viz@volcano.com"
-          
+
+          # Sella el hash de los datos que produjeron estos graficos, para que
+          # el proximo ciclo sepa que ya estan al dia.
+          echo "${{ steps.datos.outputs.hash }}" > monitoreo_satelital/.graficos_hash
+
           git add monitoreo_satelital/v_html/*.html 2>/dev/null || true
           git add monitoreo_satelital/v_html_log/*.html 2>/dev/null || true
           git add monitoreo_satelital/estado_sistema.json 2>/dev/null || true
+          git add monitoreo_satelital/.graficos_hash 2>/dev/null || true
           git add volcanes.js 2>/dev/null || true
-          
+
           if ! git diff --quiet --staged; then
             git commit -m "📊 Generación automática de gráficos"
             git pull origin main --no-rebase --strategy-option=ours || true
