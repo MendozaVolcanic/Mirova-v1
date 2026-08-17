@@ -26,6 +26,12 @@ import hashlib
 CSV_FUENTE = [
     "monitoreo_satelital/registro_vrp_maestro_publicable.csv",
     "monitoreo_satelital/registro_vrp_positivos.csv",
+    # visualizador.py tambien lee anotaciones.csv (overlay de curaduria: oculta
+    # de la escala los focos marcados como artefacto, sin borrar el dato crudo).
+    # Estaba fuera del hash, asi que marcar un artefacto con marcar_artefacto.yml
+    # cambiaba los graficos pero NO disparaba la republicacion: la curaduria no
+    # llegaba al sitio hasta que cambiaran los datos VRP por otro motivo.
+    "monitoreo_satelital/anotaciones.csv",
 ]
 ASSETS_PUBLICABLES = ["index.html", "volcanes.js"]
 VOLATILES = {"Fecha_Proceso_GitHub", "Ultima_Actualizacion", "Editado"}
