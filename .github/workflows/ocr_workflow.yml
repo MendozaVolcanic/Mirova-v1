@@ -86,14 +86,24 @@ jobs:
       - name: Ejecutar Merger Maestro
         run: python merger_maestro.py
 
-      - name: Regenerar Gráficos
-        run: python visualizador.py
+      # Los graficos NO se regeneran aca a proposito. visualizador.py reescribe
+      # los 22 HTML en cada corrida, pero lo unico que cambia es el UUID
+      # aleatorio que Plotly le pone al <div>: sin datos nuevos son ~2 MB de
+      # blobs identicos por commit, y este workflow corre ~3 veces por hora.
+      # De eso se encarga graficos_completo.yml, que corre cada 5 min y ya sabe
+      # decidir si hay algo nuevo que dibujar (compara el hash de los datos
+      # contra monitoreo_satelital/.graficos_hash).
+      # El dato del OCR igual llega al grafico: el checkout de graficos_completo
+      # usa el commit del scraper que lo dispara, y como la historia es lineal
+      # ese commit ya incluye lo que el OCR dejo antes. Latencia maxima: un ciclo
+      # del scraper (~5 min), contra datos OCR que entran cada ~30 min.
 
       - name: Guardar cambios en GitHub
         run: |
           git config --global user.name "VolcanoOCR"
           git config --global user.email "ocr@volcano.com"
-          # add selectivo: lo que generan OCR/merger/visualizador (no archivos sueltos)
+          # add selectivo: lo que generan OCR y merger (no archivos sueltos).
+          # Los HTML de graficos ya no se tocan aca, los publica graficos_completo.yml.
           git add monitoreo_satelital/ volcanes.js
           
           if ! git diff --quiet --staged; then
