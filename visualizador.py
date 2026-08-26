@@ -309,6 +309,13 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
     # moverse hacia atras no requiere regenerar nada; el limite real es el primer
     # dato de la serie (ene-2026). El eje Y y las fechas se recalculan por JS al
     # cambiar de ventana (ver script_navegacion mas abajo).
+    #
+    # Este selector solo se ve cuando el HTML se abre suelto. Dentro del
+    # dashboard se oculta por JS: ahi los botones viven en la cabecera de la
+    # tarjeta, porque en el margen superior del grafico chocaban con la leyenda
+    # (que esta centrada y crece hacia los lados: con 4 series se comia 109 px
+    # de los botones). La cabecera ya existe y tiene 185 px libres incluso en la
+    # tarjeta mas apretada, asi que no le cuesta alto al grafico.
     _botones = []
     _dias_serie = max(1, (x_fin - x_min_datos).days)
     for _n, _et in ((30, "1M"), (90, "3M"), (180, "6M")):
@@ -670,9 +677,71 @@ function _ajustarVista(gd) {
                             .catch(function() { _ajustando = false; });
 }
 
+// --- API para el dashboard --------------------------------------------------
+// Dentro del dashboard los botones 1M/3M/6M/Todo estan en la cabecera de la
+// tarjeta (fuera del iframe) porque en el margen del grafico pisaban la
+// leyenda. El padre no manipula Plotly directamente: llama a esta funcion, asi
+// el detalle de como se mueve el eje queda de este lado. El relayout dispara
+// plotly_relayout con clave 'xaxis.range', que es lo que escucha _ajustarVista,
+// de modo que el eje Y y las fechas se recalculan igual que con el selector.
+var _X_FIN = null;   // fin de la ventana inicial (ultimo dato / ahora)
+var _X_INI = null;   // primer dato de la serie completa
+
+function _limitesSerie(gd) {
+    if (_X_FIN !== null) return;
+    if (gd.layout && gd.layout.xaxis && gd.layout.xaxis.range) {
+        _X_FIN = new Date(gd.layout.xaxis.range[1]).getTime();
+    }
+    var min = null;
+    (gd.data || []).forEach(function(tr) {
+        if (tr.meta !== 'serie_vrp') return;
+        (tr.x || []).forEach(function(v) {
+            var t = new Date(v).getTime();
+            if (isFinite(t) && (min === null || t < min)) min = t;
+        });
+    });
+    _X_INI = min;
+}
+
+// dias = numero de dias hacia atras, o 0 para la serie completa.
+window.mirovaVentana = function(dias) {
+    var gd = document.getElementsByClassName('plotly-graph-div')[0];
+    if (!gd || !gd.layout) return false;
+    _limitesSerie(gd);
+    if (_X_FIN === null) return false;
+    var desde;
+    if (!dias) {
+        if (_X_INI === null) return false;
+        desde = _X_INI - (_X_FIN - _X_INI) * 0.02;   // aire para que el primer punto no quede pegado al borde
+    } else {
+        desde = _X_FIN - dias * 86400000;
+    }
+    Plotly.relayout(gd, {'xaxis.range': [new Date(desde).toISOString(),
+                                         new Date(_X_FIN).toISOString()]});
+    return true;
+};
+
+// Dias que cubre la serie. El dashboard lo usa para no ofrecer una ventana mas
+// larga que los datos (un '6M' en una serie de 2 meses da un eje medio vacio).
+window.mirovaDiasSerie = function() {
+    var gd = document.getElementsByClassName('plotly-graph-div')[0];
+    if (!gd) return 0;
+    _limitesSerie(gd);
+    if (_X_FIN === null || _X_INI === null) return 0;
+    return Math.round((_X_FIN - _X_INI) / 86400000);
+};
+
 document.addEventListener('DOMContentLoaded', function() {
     var plotDiv = document.getElementsByClassName('plotly-graph-div')[0];
     if (plotDiv) {
+        _limitesSerie(plotDiv);
+        // El selector propio se oculta solo cuando el padre avisa que ya pone
+        // los suyos (?nav=ext, el caso de las tarjetas). No se decide por
+        // "estoy en un iframe": el modal tambien lo es y ahi hay ancho de
+        // sobra, la leyenda queda lejos y el selector se usa tal cual.
+        if (location.search.indexOf('nav=ext') !== -1) {
+            Plotly.relayout(plotDiv, {'xaxis.rangeselector.visible': false});
+        }
         plotDiv.on('plotly_relayout', function(ev) {
             // solo cuando cambio el eje X (botones, zoom, arrastre o autoscale)
             var tocaX = Object.keys(ev || {}).some(function(k) {
