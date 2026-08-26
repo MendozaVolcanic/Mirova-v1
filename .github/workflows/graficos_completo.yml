@@ -160,6 +160,9 @@ jobs:
           cp monitoreo_satelital/v_html/*.html         _site/monitoreo_satelital/v_html/      2>/dev/null || true
           cp monitoreo_satelital/v_html_log/*.html     _site/monitoreo_satelital/v_html_log/  2>/dev/null || true
           cp monitoreo_satelital/estado_sistema.json   _site/monitoreo_satelital/             2>/dev/null || true
+          # El last-sync que ve el dashboard se sella aca (solo en _site, sin
+          # commitear). Ver el encabezado de scripts/heartbeat_site.py.
+          python scripts/heartbeat_site.py
           cp monitoreo_satelital/registro_*.csv        _site/monitoreo_satelital/             2>/dev/null || true
           echo "Archivos en el sitio publicable: $(find _site -type f | wc -l)"
           find _site -type f | sort
@@ -189,9 +192,18 @@ jobs:
           # persona, y sin esto no habia forma de forzar una republicacion
           # cuando el sitio queda desincronizado del repo (p.ej. si un deploy
           # publico graficos viejos y despues el hash no volvio a cambiar).
+          # Antiguedad del heartbeat ya publicado. Aunque no haya datos nuevos hay
+          # que republicar cada tanto, o el "last-sync" del dashboard se congela y
+          # aparenta que el sistema esta caido. Con 1 h son ~24 deploys/dia, lejos
+          # de los ~288 que saturaban el backend de Pages.
+          VIEJO=$(curl -fsS --max-time 20 "https://mendozavolcanic.github.io/Mirova-v1/monitoreo_satelital/estado_sistema.json?nc=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" 2>/dev/null                   | python scripts/heartbeat_vencido.py || echo "si")
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Corrida manual: se publica igual (hash actual $NEW)."
+          elif [ "$VIEJO" = "si" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "El heartbeat publicado quedo viejo: se republica para refrescar el last-sync."
           elif [ "$NEW" = "$PUB" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Datos-fuente sin cambios (hash $NEW). Se omite el deploy a Pages."
