@@ -24,11 +24,23 @@
         .legend-box { width: 12px; height: 12px; border: 1px solid #30363d; border-radius: 2px; }
 
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 5px; padding: 5px; max-width: 99.5%; margin: 0 auto; }
-        .card { background-color: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 0px; position: relative; }
+        .card { background-color: #161b22; border: 1px solid #21262d; border-radius: 4px; padding: 0px; position: relative;
+                container-type: inline-size; }
         .card-header-box { text-align: center; padding: 8px 0 4px 0; }
         .card h2 { margin: 0; font-size: 1.1em; color: #58a6ff; display: inline-block; }
         .region-tag { font-size: 0.75em; color: #8b949e; margin-left: 6px; font-style: italic; }
         .card-controls { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; z-index: 10; }
+        /* Navegacion temporal. Vivia dentro del grafico, pero ahi compartia el
+           margen superior con la leyenda: como la leyenda esta centrada y crece
+           hacia los lados, con 4 series se comia 109 px de los botones (10 de
+           los 11 volcanes se solapaban). La cabecera ya existe, tiene 185 px
+           libres hasta en la tarjeta mas angosta y no le quita alto al grafico.
+           Absoluta a la izquierda para no descentrar el nombre del volcan. */
+        .card-nav { position: absolute; top: 8px; left: 8px; display: flex; gap: 3px; z-index: 10; }
+        .nav-btn { background: rgba(33, 38, 45, 0.9); color: #8b949e; border: 1px solid #30363d;
+                   border-radius: 2px; padding: 1px 5px; cursor: pointer; font-size: 9px; line-height: 1.5; }
+        .nav-btn:hover { color: #c9d1d9; border-color: #8b949e; }
+        .nav-btn.activo { background: #1f6feb; color: #fff; border-color: #1f6feb; }
         .mini-btn { background: rgba(33, 38, 45, 0.9); color: #8b949e; border: 1px solid #30363d; border-radius: 2px; padding: 1px 5px; cursor: pointer; font-size: 9px; }
 
         iframe { width: 100%; height: 310px; border: none; background: #0d1117; border-radius: 2px; overflow: hidden; display: block; margin-top: 2px; }
@@ -143,6 +155,21 @@
         body.modo-foco .card-header-box { padding: 3px 0 1px 0; }
         body.modo-foco .card h2 { font-size: 0.95em; }
         body.modo-foco .region-tag { font-size: 0.68em; }
+        /* La cabecera compacta deja ~24 px: con top:8px los botones se salian
+           sobre el grafico. */
+        body.modo-foco .card-nav { top: 3px; }
+        body.modo-foco .nav-btn { font-size: 8px; padding: 0 4px; }
+
+        /* Va DESPUES de todas las reglas de .card-nav: misma especificidad, asi
+           que si se declarara antes perderia la cascada y no ocultaria nada.
+           Umbral = los 381 px que piden botones + nombre mas largo (Puyehue) +
+           region + controles, mas padding y aire. Debajo de eso no caben en la
+           cabecera; la navegacion sigue estando al salir del foco o al ampliar.
+           Se decide por el ancho REAL de la tarjeta, no por el modo: en una
+           pantalla grande el foco deja tarjetas anchas y los botones se quedan. */
+        @container (max-width: 430px) {
+            .card-nav { display: none; }
+        }
 
         /* En pantallas angostas caben pocas columnas y 11 filas serian ilegibles:
            ahi se prioriza un alto minimo y se permite scroll. */
@@ -303,6 +330,46 @@
                 focoPrevio = null;
             }
         });
+
+        // --- Navegacion temporal de las tarjetas ---------------------------
+        // Los botones estan fuera del iframe (en la cabecera), asi que hablan
+        // con el grafico por la API que expone el HTML: mirovaVentana(dias).
+        // No se toca Plotly desde aca; el iframe recalcula solo el eje Y y las
+        // fechas al cambiar el rango. El modal NO lleva estos botones: ahi
+        // sobra ancho y usa el selector nativo de Plotly (la leyenda le queda
+        // a 246 px), por eso su URL va sin el flag nav=ext.
+        function _ventanaIframe(iframe, dias) {
+            try {
+                const w = iframe && iframe.contentWindow;
+                return !!(w && w.mirovaVentana && w.mirovaVentana(dias));
+            } catch (e) { return false; }   // aun cargando o sin acceso
+        }
+
+        function verVentana(btn, dias) {
+            const cont = btn.closest('.card');
+            if (!cont) return;
+            if (!_ventanaIframe(cont.querySelector('iframe'), dias)) return;
+            cont.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('activo'));
+            btn.classList.add('activo');
+        }
+
+        // El grafico arranca en los ultimos 30 dias: se marca 1M para que el
+        // boton activo diga la verdad. Y se ocultan las ventanas mas largas que
+        // la serie, que es lo que hacia el selector de Plotly.
+        function prepararNav(iframe) {
+            const cont = iframe.closest('.card');
+            if (!cont) return;
+            let dias = 0;
+            try {
+                const w = iframe.contentWindow;
+                if (w && w.mirovaDiasSerie) dias = w.mirovaDiasSerie();
+            } catch (e) { return; }
+            cont.querySelectorAll('.nav-btn').forEach(b => {
+                const d = parseInt(b.dataset.dias, 10);
+                b.style.display = (d && dias && dias <= d) ? 'none' : '';
+                b.classList.toggle('activo', d === 30);
+            });
+        }
 
         function openModal(url) {
             if (currentScale === "log") {
@@ -706,6 +773,12 @@
                 const url = `monitoreo_satelital/v_html/${v.file}.html?t=${ts}`;
 
                 card.innerHTML = `
+                    <div class="card-nav">
+                        <button class="nav-btn" data-dias="30" onclick="verVentana(this,30)">1M</button>
+                        <button class="nav-btn" data-dias="90" onclick="verVentana(this,90)">3M</button>
+                        <button class="nav-btn" data-dias="180" onclick="verVentana(this,180)">6M</button>
+                        <button class="nav-btn" data-dias="0" onclick="verVentana(this,0)">Todo</button>
+                    </div>
                     <div class="card-controls">
                         <button class="mini-btn" onclick="descargarCSV('${v.file}')">📥 CSV</button>
                         <button class="mini-btn" onclick="openModal('${url}')">⛶</button>
@@ -714,7 +787,7 @@
                         <h2>${v.n}</h2>
                         <span class="region-tag">(${v.r})</span>
                     </div>
-                    <iframe id="ifr-${v.file}" src="${url}" scrolling="no"></iframe>
+                    <iframe id="ifr-${v.file}" src="${url}&nav=ext" scrolling="no" onload="prepararNav(this)"></iframe>
                 `;
                 container.appendChild(card);
             });
