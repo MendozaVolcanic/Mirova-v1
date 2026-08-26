@@ -75,14 +75,34 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
     ahora = datetime.now(tz_chile)
     hace_30_dias = (ahora - timedelta(days=30)).replace(hour=0, minute=0, second=0)
     
+    # --- Serie completa vs ventana visible -------------------------------------
+    # Se GRAFICA toda la serie historica (para poder navegar hacia atras), pero
+    # la ESCALA y las etiquetas MAX/ULTIMA se calculan sobre los ultimos 30 dias,
+    # que es la ventana que se abre por defecto. Si se calcularan sobre todo el
+    # historico, un pico viejo (Lascar llego a 760 MW) aplastaria la vista actual
+    # y "MAX" pasaria a significar "maximo historico" en vez de "maximo del
+    # periodo mostrado".
     df_v_30 = pd.DataFrame()
     if not df_v.empty:
         df_v['Fecha_UTC'] = pd.to_datetime(df_v['Fecha_Satelite_UTC']).dt.tz_localize('UTC')
         df_v['Fecha_Chile_temp'] = df_v['Fecha_UTC'].dt.tz_convert('America/Santiago')
-        df_v_30 = df_v[df_v['Fecha_Chile_temp'] >= hace_30_dias].copy()
-        df_v_30 = df_v_30[df_v_30['VRP_MW'] > 0].copy()
+        df_v_30 = df_v[df_v['VRP_MW'] > 0].copy()
 
     if df_v_30.empty: return None
+
+    # Ventana por defecto = ultimos 30 dias. Si el volcan no tuvo actividad en
+    # ese periodo, se abre mostrando toda la serie: antes devolviamos None y el
+    # usuario veia "SIN ANOMALIA TERMICA" sin poder consultar el historico.
+    df_escala = df_v_30[df_v_30['Fecha_Chile_temp'] >= hace_30_dias].copy()
+    hay_datos_recientes = not df_escala.empty
+    if not hay_datos_recientes:
+        df_escala = df_v_30
+        x_inicio = df_v_30['Fecha_Chile_temp'].min()
+    else:
+        x_inicio = hace_30_dias
+    x_fin = ahora + timedelta(hours=6)
+    # Limite duro hacia atras: el primer dato de la serie (no hay nada anterior).
+    x_min_datos = df_v_30['Fecha_Chile_temp'].min()
 
     # --- Capa de curaduria: separar detecciones marcadas como artefacto ----------
     # Los marcados se EXCLUYEN del autoescalado del eje Y (para no aplastar la senal
@@ -93,13 +113,19 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
             return str(int(float(x)))
         except (ValueError, TypeError):
             return str(x).strip()
-    df_v_30['_es_artefacto'] = df_v_30['timestamp'].apply(_ts_key).isin(set(anotaciones_v.keys()))
+    _claves_arte = set(anotaciones_v.keys())
+    df_v_30['_es_artefacto'] = df_v_30['timestamp'].apply(_ts_key).isin(_claves_arte)
     df_normal = df_v_30[~df_v_30['_es_artefacto']].copy()
     df_arte = df_v_30[df_v_30['_es_artefacto']].copy()
 
+    # Solo lo que cae dentro de la ventana visible inicial manda en la escala Y
+    # y en las etiquetas MAX/ULTIMA.
+    df_escala['_es_artefacto'] = df_escala['timestamp'].apply(_ts_key).isin(_claves_arte)
+    df_escala_normal = df_escala[~df_escala['_es_artefacto']].copy()
+
     unidad = "Watt" if modo_log else "MW"
     fig = go.Figure()
-    v_max_val = df_normal['VRP_MW'].max() if not df_normal.empty else 1.0
+    v_max_val = df_escala_normal['VRP_MW'].max() if not df_escala_normal.empty else 1.0
     
     def transform(val_mw):
         if modo_log:
@@ -203,9 +229,12 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
         if sensor not in sensores_agregados:
             fig.add_trace(go.Scatter(
                 x=df_sensor['Fecha_UTC'],
-                y=df_sensor['VRP_Transformed'],
+                # .tolist(): con una Series, plotly 6.x serializa el eje Y como
+                # binario base64 y el JS de autoescalado no puede leer los valores.
+                y=df_sensor['VRP_Transformed'].tolist(),
                 mode='markers',
                 name=sensor,
+                meta='serie_vrp',   # lo lee el JS de autoescalado del eje Y
                 marker=dict(
                     size=6,
                     symbol=MAPA_SIMBOLOS.get(sensor, 'circle'),
@@ -251,14 +280,14 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
         'Sep': 'Sep', 'Oct': 'Oct', 'Nov': 'Nov', 'Dec': 'Dic'
     }
     
-    dias_totales = (ahora - hace_30_dias).days
+    dias_totales = max(1, (x_fin - x_inicio).days)
     
     tick_dates = []
     tick_labels = []
     
     for i in range(6):
         dias_offset = int((dias_totales / 6) * i)
-        fecha = hace_30_dias + timedelta(days=dias_offset)
+        fecha = x_inicio + timedelta(days=dias_offset)
         tick_dates.append(fecha)
         
         label_en = fecha.strftime("%d %b")
@@ -276,9 +305,29 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
             label_actual = label_actual.replace(en, es)
         tick_labels.append(label_actual)
     
+    # Botones de navegacion temporal. El HTML lleva la serie completa, asi que
+    # moverse hacia atras no requiere regenerar nada; el limite real es el primer
+    # dato de la serie (ene-2026). El eje Y y las fechas se recalculan por JS al
+    # cambiar de ventana (ver script_navegacion mas abajo).
+    _botones = []
+    _dias_serie = max(1, (x_fin - x_min_datos).days)
+    for _n, _et in ((30, "1M"), (90, "3M"), (180, "6M")):
+        if _dias_serie > _n:
+            _botones.append(dict(count=_n, label=_et, step="day", stepmode="backward"))
+    _botones.append(dict(step="all", label="Todo"))
+
     fig.update_xaxes(
         type="date",
-        range=[hace_30_dias, ahora + timedelta(hours=6)],
+        range=[x_inicio, x_fin],
+        rangeselector=dict(
+            buttons=_botones,
+            bgcolor="rgba(22,27,34,0.9)",
+            activecolor="#1f6feb",
+            bordercolor="rgba(139,148,158,0.4)",
+            borderwidth=1,
+            font=dict(color="#c9d1d9", size=10),
+            x=0, xanchor="left", y=1.12, yanchor="top"
+        ),
         tickmode='array',
         tickvals=tick_dates,
         ticktext=tick_labels,
@@ -330,7 +379,8 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
         xanchor="right"
     )
     
-    if not df_normal.empty:
+    # Las etiquetas se dibujan sobre la ventana visible; si esta vacia no hay nada que rotular.
+    if not df_escala_normal.empty:
         # Rango Y según el modo (para ubicar las etiquetas sin que se salgan)
         y_lo, y_hi = (4.7, 9.0) if modo_log else (0.0, max(1.1, v_max_val * 1.5))
 
@@ -361,11 +411,11 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
                 ya, ay = 'top', 30
             return xa, ax, ya, ay
 
-        max_r = df_normal.loc[df_normal['VRP_MW'].idxmax()]
+        max_r = df_escala_normal.loc[df_escala_normal['VRP_MW'].idxmax()]
         fecha_max = max_r['Fecha_UTC']
 
-        # Última lectura = evento VRP>0 más reciente del periodo
-        ult_r = df_normal.loc[df_normal['Fecha_UTC'].idxmax()]
+        # Última lectura = evento VRP>0 más reciente del periodo MOSTRADO
+        ult_r = df_escala_normal.loc[df_escala_normal['Fecha_UTC'].idxmax()]
         fecha_ult = ult_r['Fecha_UTC']
         # ¿La última lectura es también el máximo? (mismo punto → una sola etiqueta)
         ult_es_max = (fecha_ult == fecha_max) and (ult_r['VRP_MW'] == max_r['VRP_MW'])
@@ -542,9 +592,94 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 }
 </style>
 <script>
+// ---------------------------------------------------------------------------
+// Navegacion temporal: el HTML trae la serie completa y la ventana por defecto
+// son los ultimos 30 dias. Al cambiar de ventana (botones 1M/3M/6M/Todo, zoom o
+// arrastre) hay que recalcular dos cosas que Plotly no ajusta solo:
+//   1. El eje Y, para que cada periodo se vea en su propia escala. Sin esto un
+//      pico viejo (Lascar: 760 MW historicos vs 1,6 MW del ultimo mes) deja los
+//      meses tranquilos pegados al piso.
+//   2. Las fechas del eje X, que se generan en espanol desde aca en vez de
+//      cargar un locale de Plotly por CDN (en OVDAS puede no haber internet).
+// El eje Y logaritmico NO se toca: su rango fijo ya cubre toda la serie.
+// ---------------------------------------------------------------------------
+var MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+var _ajustando = false;   // evita el bucle: relayout dispara plotly_relayout
+
+function _fmtFecha(d, dias) {
+    var s = d.getDate() + ' ' + MESES_ES[d.getMonth()];
+    if (dias > 200) { s = MESES_ES[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2); }
+    return s;
+}
+
+// plotly 6.x puede entregar el eje Y como {dtype,bdata} (binario base64) en vez
+// de un array. Se cubren ambos casos para no depender de la version.
+function _valoresY(tr) {
+    var y = tr.y;
+    if (!y) return null;
+    if (Array.isArray(y) || ArrayBuffer.isView(y)) return y;
+    if (y._inputArray) return y._inputArray;
+    return null;
+}
+
+function _ajustarVista(gd) {
+    if (_ajustando) return;
+    var xa = gd.layout.xaxis;
+    if (!xa || !xa.range) return;
+    var x0 = new Date(xa.range[0]).getTime(), x1 = new Date(xa.range[1]).getTime();
+    if (!isFinite(x0) || !isFinite(x1) || x1 <= x0) return;
+    var dias = (x1 - x0) / 86400000;
+
+    var upd = {};
+
+    // --- 1. eje Y sobre los puntos visibles (solo escala lineal) -------------
+    var esLog = gd.layout.yaxis && gd.layout.yaxis.tickvals &&
+                gd.layout.yaxis.tickvals.length === 4;
+    if (!esLog) {
+        var vmax = null;
+        (gd.data || []).forEach(function(tr) {
+            if (tr.meta !== 'serie_vrp') return;      // ignora bandas y artefactos
+            if (tr.visible === false || tr.visible === 'legendonly') return;
+            var xs = tr.x || [], ys = _valoresY(tr);
+            if (!ys) return;
+            for (var i = 0; i < xs.length; i++) {
+                var t = new Date(xs[i]).getTime();
+                if (t >= x0 && t <= x1 && ys[i] != null) {
+                    if (vmax === null || ys[i] > vmax) vmax = ys[i];
+                }
+            }
+        });
+        // Sin puntos visibles se deja la escala como esta: un eje que salta a 0
+        // al pasar por un hueco sin datos se lee como si el volcan hubiera
+        // dejado de medirse.
+        if (vmax !== null) upd['yaxis.range'] = [0, Math.max(1.1, vmax * 1.5)];
+    }
+
+    // --- 2. fechas del eje X en espanol, densidad segun el zoom --------------
+    var n = 6, vals = [], txts = [];
+    for (var k = 0; k <= n; k++) {
+        var d = new Date(x0 + (x1 - x0) * k / n);
+        vals.push(d.toISOString());
+        txts.push(_fmtFecha(d, dias));
+    }
+    upd['xaxis.tickvals'] = vals;
+    upd['xaxis.ticktext'] = txts;
+
+    _ajustando = true;
+    Plotly.relayout(gd, upd).then(function() { _ajustando = false; })
+                            .catch(function() { _ajustando = false; });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     var plotDiv = document.getElementsByClassName('plotly-graph-div')[0];
     if (plotDiv) {
+        plotDiv.on('plotly_relayout', function(ev) {
+            // solo cuando cambio el eje X (botones, zoom, arrastre o autoscale)
+            var tocaX = Object.keys(ev || {}).some(function(k) {
+                return k.indexOf('xaxis') === 0;
+            });
+            if (tocaX) _ajustarVista(plotDiv);
+        });
         plotDiv.on('plotly_click', function(data) {
             var point = data.points[0];
             if (point.customdata) {

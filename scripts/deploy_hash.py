@@ -33,7 +33,12 @@ CSV_FUENTE = [
     # llegaba al sitio hasta que cambiaran los datos VRP por otro motivo.
     "monitoreo_satelital/anotaciones.csv",
 ]
-ASSETS_PUBLICABLES = ["index.html", "volcanes.js"]
+# visualizador.py entra al hash porque el HTML depende de COMO se dibuja, no
+# solo de los datos: si cambia el generador (p.ej. se agrega navegacion
+# temporal) hay que regenerar y republicar aunque los datos sean identicos.
+# Sin esto, un cambio de codigo quedaba sin efecto hasta que entrara un dato
+# nuevo por casualidad.
+ASSETS_PUBLICABLES = ["index.html", "volcanes.js", "visualizador.py"]
 VOLATILES = {"Fecha_Proceso_GitHub", "Ultima_Actualizacion", "Editado"}
 SEP = b"::FIN::"
 
