@@ -3,12 +3,12 @@
 # workflow y confirmar verde. Dependabot avisa cuando hay updates/CVE.
 requests==2.34.2
 beautifulsoup4==4.15.0
-pandas==3.0.3
-lxml==6.1.1
-pytz==2026.2
-numpy==2.4.6
-plotly==6.8.0
-matplotlib==3.10.9
+pandas==3.0.5
+lxml==6.1.2
+pytz==2026.3.post1
+numpy==2.5.2
+plotly==7.0.0
+matplotlib==3.11.1
 pytesseract==0.3.13
-opencv-python==4.13.0.92
-Pillow==12.2.0
+opencv-python==5.0.0.93
+Pillow==12.3.0
