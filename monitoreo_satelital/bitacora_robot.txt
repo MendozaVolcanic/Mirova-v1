@@ -212835,3 +212835,6 @@
 [2026-09-08 08:21:02] INICIO SCRAPER V17 (+ Tupungatito)
 [2026-09-08 08:21:03] Filas leídas desde latest.php: 528
 [2026-09-08 08:21:03] Proceso completado correctamente.
+[2026-09-08 08:25:55] INICIO SCRAPER V17 (+ Tupungatito)
+[2026-09-08 08:25:56] Filas leídas desde latest.php: 528
+[2026-09-08 08:25:56] Proceso completado correctamente.
