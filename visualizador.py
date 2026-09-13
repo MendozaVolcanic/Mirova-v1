@@ -613,9 +613,27 @@ html, body { height: 100%; margin: 0; overflow: hidden; }
 var MESES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 var _ajustando = false;   // evita el bucle: relayout dispara plotly_relayout
 
+// Plotly lee las fechas como HORA DE PARED: si el string trae 'Z' o '-03:00'
+// descarta la zona y usa la hora escrita. El reloj de JavaScript (new Date,
+// toISOString) si respeta la zona, asi que mezclar ambos corre los ticks. Con
+// el rango escrito en hora Chile, un tick generado con toISOString caia 3 h mas
+// a la derecha: el ultimo quedaba fuera del eje y Plotly lo ocultaba (se perdia
+// la fecha del dia). Todas las fechas de este script pasan por estas dos
+// funciones, que trabajan en hora de pared igual que Plotly.
+function _pared(v) {
+    var s = String(v).trim().replace(' ', 'T')
+        .replace(/(Z|[+-]\d\d:?\d\d)$/i, '')
+        .replace(/(\.\d{3})\d+/, '$1');
+    return Date.parse(s.length <= 10 ? s + 'T00:00:00Z' : s + 'Z');
+}
+
+function _paredStr(ms) {
+    return new Date(ms).toISOString().slice(0, 23);   // sin 'Z'
+}
+
 function _fmtFecha(d, dias) {
-    var s = d.getDate() + ' ' + MESES_ES[d.getMonth()];
-    if (dias > 200) { s = MESES_ES[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2); }
+    var s = d.getUTCDate() + ' ' + MESES_ES[d.getUTCMonth()];
+    if (dias > 200) { s = MESES_ES[d.getUTCMonth()] + ' ' + String(d.getUTCFullYear()).slice(2); }
     return s;
 }
 
@@ -633,7 +651,7 @@ function _ajustarVista(gd) {
     if (_ajustando) return;
     var xa = gd.layout.xaxis;
     if (!xa || !xa.range) return;
-    var x0 = new Date(xa.range[0]).getTime(), x1 = new Date(xa.range[1]).getTime();
+    var x0 = _pared(xa.range[0]), x1 = _pared(xa.range[1]);
     if (!isFinite(x0) || !isFinite(x1) || x1 <= x0) return;
     var dias = (x1 - x0) / 86400000;
 
@@ -650,7 +668,7 @@ function _ajustarVista(gd) {
             var xs = tr.x || [], ys = _valoresY(tr);
             if (!ys) return;
             for (var i = 0; i < xs.length; i++) {
-                var t = new Date(xs[i]).getTime();
+                var t = _pared(xs[i]);
                 if (t >= x0 && t <= x1 && ys[i] != null) {
                     if (vmax === null || ys[i] > vmax) vmax = ys[i];
                 }
@@ -666,7 +684,7 @@ function _ajustarVista(gd) {
     var n = 6, vals = [], txts = [];
     for (var k = 0; k <= n; k++) {
         var d = new Date(x0 + (x1 - x0) * k / n);
-        vals.push(d.toISOString());
+        vals.push(_paredStr(d.getTime()));
         txts.push(_fmtFecha(d, dias));
     }
     upd['xaxis.tickvals'] = vals;
@@ -690,13 +708,13 @@ var _X_INI = null;   // primer dato de la serie completa
 function _limitesSerie(gd) {
     if (_X_FIN !== null) return;
     if (gd.layout && gd.layout.xaxis && gd.layout.xaxis.range) {
-        _X_FIN = new Date(gd.layout.xaxis.range[1]).getTime();
+        _X_FIN = _pared(gd.layout.xaxis.range[1]);
     }
     var min = null;
     (gd.data || []).forEach(function(tr) {
         if (tr.meta !== 'serie_vrp') return;
         (tr.x || []).forEach(function(v) {
-            var t = new Date(v).getTime();
+            var t = _pared(v);
             if (isFinite(t) && (min === null || t < min)) min = t;
         });
     });
@@ -716,8 +734,7 @@ window.mirovaVentana = function(dias) {
     } else {
         desde = _X_FIN - dias * 86400000;
     }
-    Plotly.relayout(gd, {'xaxis.range': [new Date(desde).toISOString(),
-                                         new Date(_X_FIN).toISOString()]});
+    Plotly.relayout(gd, {'xaxis.range': [_paredStr(desde), _paredStr(_X_FIN)]});
     return true;
 };
 
