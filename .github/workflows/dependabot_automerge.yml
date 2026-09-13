@@ -45,8 +45,14 @@ jobs:
           pr = arr[0]; num = pr["number"]; author = pr["author"]["login"]
           title = pr["title"]; body = pr.get("body") or ""
 
-          # (defensa) solo PRs de Dependabot
-          if not author.startswith("dependabot"):
+          # (defensa) solo PRs de Dependabot. `gh pr list` entrega el login de las
+          # GitHub Apps como "app/dependabot" (la API REST, "dependabot[bot]").
+          # Antes se exigia startswith("dependabot"): "app/dependabot" no
+          # calzaba, cada PR se rechazaba y el job salia con exit 0, en verde.
+          # Asi el parche de Pillow (13 CVE) quedo sin mergear desde jul-2026.
+          # Se compara contra la lista exacta, no con "contiene", para que un
+          # usuario llamado p.ej. "dependabot-fake" no pase.
+          if author not in ("app/dependabot", "dependabot[bot]", "dependabot"):
               print(f"⛔ PR #{num} no es de Dependabot (autor: {author}) — no se toca"); raise SystemExit(0)
 
           # Extraer pares "from X to Y" (título + cuerpo → cubre PRs agrupados)
