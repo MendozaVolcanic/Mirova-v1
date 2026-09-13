@@ -460,7 +460,13 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
         # quede una banda muerta debajo. El alto real lo decide el CSS del
         # dashboard; acá solo se pide que Plotly se adapte al contenedor.
         height=None,
-        margin=dict(l=40, r=2, t=35, b=40),
+        # r=12 y no menos: el ultimo tick (el dia actual en 1M, el mes actual en
+        # Todo) cae justo en el borde derecho del grafico, y su etiqueta va
+        # inclinada a -45 grados, asi que la caja del texto sobresale unos px.
+        # Plotly oculta toda etiqueta que pase el borde del div
+        # (ticklabeloverflow "hide past div"). Con r=2 se perdia la fecha del
+        # dia en las 11 tarjetas; medido en el sitio, desde r=8 se ve en todas.
+        margin=dict(l=40, r=12, t=35, b=40),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         showlegend=True,
