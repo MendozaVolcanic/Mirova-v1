@@ -71,9 +71,16 @@ def cargar_anotaciones():
 
 
 def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
-    tz_chile = pytz.timezone('America/Santiago')
-    ahora = datetime.now(tz_chile)
-    hace_30_dias = (ahora - timedelta(days=30)).replace(hour=0, minute=0, second=0)
+    # Todo el eje X va en UTC, igual que los puntos (Fecha_UTC) y que el aviso
+    # del dashboard ("todas las horas en UTC"). Antes el rango, la ventana de
+    # 30 dias y las etiquetas salian en hora de Chile: como Plotly descarta la
+    # zona horaria, el eje quedaba en hora de pared chilena y los puntos en
+    # hora de pared UTC. Entre las 21:00 y la medianoche de Chile la etiqueta
+    # del dia no calzaba con la fecha de los datos, y que los puntos recientes
+    # quedaran dentro del eje dependia de que el margen de 6 h le ganara a la
+    # diferencia horaria (3 h, 4 h en invierno).
+    ahora = datetime.now(pytz.UTC)
+    hace_30_dias = (ahora - timedelta(days=30)).replace(hour=0, minute=0, second=0, microsecond=0)
     
     # --- Serie completa vs ventana visible -------------------------------------
     # Se GRAFICA toda la serie historica (para poder navegar hacia atras), pero
@@ -85,7 +92,6 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
     df_v_30 = pd.DataFrame()
     if not df_v.empty:
         df_v['Fecha_UTC'] = pd.to_datetime(df_v['Fecha_Satelite_UTC']).dt.tz_localize('UTC')
-        df_v['Fecha_Chile_temp'] = df_v['Fecha_UTC'].dt.tz_convert('America/Santiago')
         df_v_30 = df_v[df_v['VRP_MW'] > 0].copy()
 
     if df_v_30.empty: return None
@@ -93,16 +99,16 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
     # Ventana por defecto = ultimos 30 dias. Si el volcan no tuvo actividad en
     # ese periodo, se abre mostrando toda la serie: antes devolviamos None y el
     # usuario veia "SIN ANOMALIA TERMICA" sin poder consultar el historico.
-    df_escala = df_v_30[df_v_30['Fecha_Chile_temp'] >= hace_30_dias].copy()
+    df_escala = df_v_30[df_v_30['Fecha_UTC'] >= hace_30_dias].copy()
     hay_datos_recientes = not df_escala.empty
     if not hay_datos_recientes:
         df_escala = df_v_30
-        x_inicio = df_v_30['Fecha_Chile_temp'].min()
+        x_inicio = df_v_30['Fecha_UTC'].min()
     else:
         x_inicio = hace_30_dias
     x_fin = ahora + timedelta(hours=6)
     # Limite duro hacia atras: el primer dato de la serie (no hay nada anterior).
-    x_min_datos = df_v_30['Fecha_Chile_temp'].min()
+    x_min_datos = df_v_30['Fecha_UTC'].min()
 
     # --- Capa de curaduria: separar detecciones marcadas como artefacto ----------
     # Los marcados se EXCLUYEN del autoescalado del eje Y (para no aplastar la senal
