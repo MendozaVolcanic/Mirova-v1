@@ -429,6 +429,99 @@ def leer_nivel_anomalia(img_bgr):
 PATRON_FECHA_NTI = re.compile(r'(\d{1,2})-([A-Za-z]{3})-(\d{4})\s+(\d{2}:\d{2}:\d{2})')
 
 
+# ========================================
+# V31: CABECERA "Last Update" (de qué pasada es la imagen)
+# ========================================
+# Por qué: MIROVA mantiene UNA imagen viva por volcán y sensor (VRP, logVRP,
+# Dist, Latest10NTI) y la reemplaza en cada pasada. El OCR corre una vez por
+# hora, así que cuando baja Dist.png puede que MIROVA ya la haya reemplazado
+# por la de una pasada posterior. La estrella de Dist.png marca la distancia de
+# la ÚLTIMA detección (la de la cabecera), no la de las otras celdas de
+# Latest10NTI. Sin esta verificación, una pasada vieja heredaba la distancia
+# y la clase (ALERTA dentro del límite) de la pasada de la cabecera, y la
+# evidencia se guardaba con la hora de una pasada y el contenido de otra.
+# Medido 2026-10-09 (VRP Chile docs/S150_IMAGENES_SNPP.md + muestra de 59
+# imágenes al azar del archivo): cabecera legible en 59/59; coincide al
+# segundo con la hora del archivo en 45/59; en 12 es de una pasada POSTERIOR
+# (filas ALERTA_TERMICA_OCR) y en 2 de una ANTERIOR (filas de latest.php).
+
+# Tolerancia entre la cabecera y la hora de la pasada. La cabecera y la fecha
+# de la celda son el mismo texto de MIROVA: cuando la imagen es de esa pasada
+# coinciden al segundo (45/45 en la muestra). La separación mínima entre dos
+# pasadas distintas del mismo volcán y sensor en registro_vrp_consolidado.csv
+# es 5 min (12 de 41.762 pares; el 1 % más cercano está a 18 min). 2 min es
+# menos de la mitad de esa separación, así que una cabecera no puede calzar con
+# dos pasadas, y absorbe una mala lectura del dígito de los segundos.
+TOLERANCIA_CABECERA_S = 120
+
+# Banner superior (en coordenadas 850x600; se escala con alto/600 para la
+# variante 850x596). Mismo lugar en VRP, logVRP, Dist y Latest10NTI.
+_ROI_LAST_UPDATE = (45, 78, 80, 440)  # y1, y2, x1, x2
+
+_MESES_EN = ('Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec')
+_PATRON_LAST_UPDATE = re.compile(
+    r'(\d{1,2})\s*-\s*(\S[a-z]{2})\s*-\s*(\d{4})\s*(\d{2})\s*[:.]\s*(\d{2})\s*[:.]\s*(\d{2})')
+
+
+def _mes_ocr(token):
+    """Mes de 3 letras leído por Tesseract -> 'Jan'..'Dec', o None.
+    La J mayúscula sale a veces como ']', '/', '|' o 'l' ('19-]an-2026')."""
+    t = token[:1].upper() + token[1:].lower()
+    if t in _MESES_EN:
+        return t
+    if token[:1] in ']/|l1I[' and ('J' + token[1:].lower()) in _MESES_EN:
+        return 'J' + token[1:].lower()
+    return None
+
+
+def leer_last_update(img):
+    """
+    V31: lee "Last Update: DD-Mon-YYYY HH:MM:SS" del banner de una imagen MIROVA.
+
+    `img` puede ser una ruta o una imagen BGR (ndarray). Devuelve un datetime
+    UTC (aware) o None si no se pudo leer. Nunca inventa: si el texto no parsea
+    como fecha válida, devuelve None y quien llama decide (el scraper OCR, por
+    prudencia, NO crea la fila).
+    """
+    try:
+        if isinstance(img, str):
+            img = cv2.imread(img)
+        if img is None or getattr(img, 'size', 0) == 0:
+            return None
+        sy = img.shape[0] / 600.0
+        y1, y2, x1, x2 = _ROI_LAST_UPDATE
+        roi = img[int(y1 * sy):int(y2 * sy), x1:x2]
+        if roi.size == 0:
+            return None
+        g = cv2.resize(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY), None,
+                       fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        texto = pytesseract.image_to_string(g, config='--oem 3 --psm 7')
+        m = _PATRON_LAST_UPDATE.search(texto)
+        if not m:
+            return None
+        mes = _mes_ocr(m.group(2))
+        if mes is None:
+            return None
+        dt = datetime.strptime(
+            f"{m.group(1).zfill(2)}-{mes}-{m.group(3)} "
+            f"{m.group(4)}:{m.group(5)}:{m.group(6)}", "%d-%b-%Y %H:%M:%S")
+        return dt.replace(tzinfo=pytz.utc)
+    except Exception as e:
+        print(f"   ⚠️ V31: no se pudo leer 'Last Update': {e}")
+        return None
+
+
+def cabecera_coincide(dt_cabecera, dt_pasada, tolerancia_s=TOLERANCIA_CABECERA_S):
+    """True si la cabecera describe la pasada dt_pasada (±tolerancia).
+    Cabecera ilegible (None) -> False: lo que no se puede comprobar no se acepta."""
+    if dt_cabecera is None or dt_pasada is None:
+        return False
+    if dt_pasada.tzinfo is None:
+        dt_pasada = dt_pasada.replace(tzinfo=pytz.utc)
+    return abs((dt_cabecera - dt_pasada).total_seconds()) <= tolerancia_s
+
+
 def _normalizar_texto_ocr(t):
     """Limpia ruido típico de Tesseract en las tiras de Latest10NTI."""
     t = re.sub(r'([A-Z])/([a-z])', r'\1\2', t)    # "J/un" -> "Jun"

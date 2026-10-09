@@ -2,6 +2,12 @@
 SCRAPER_OCR.PY V21 - Integración contexto latest.php
 BASE: V20 (FIX KeyError 'nota') + NUEVO contexto latest.php
 
+CAMBIO V31 (2026-10-09): la fila OCR solo se crea si la cabecera "Last Update"
+de Dist.png es la pasada de la fila (±TOLERANCIA_CABECERA_S). Si no, la pasada
+va a monitoreo_satelital/ocr_rechazos_cabecera.csv con el VRP de su celda, y
+las imágenes permanentes se guardan solo si su cabecera es esa pasada.
+Ver motivo_rechazo_cabecera() y ocr_utils.leer_last_update().
+
 CAMBIO V21:
 - NUEVO: Llamada a obtener_contexto_latest() después de OCR
 - MODIFICADO: Pasar contexto_latest a analizar_puntos_distancia()
@@ -28,7 +34,10 @@ from ocr_utils import (
     analizar_puntos_distancia,
     clasificar_confianza,
     verificar_evento_no_existe,
-    obtener_contexto_latest  # =====NUEVO V21=====
+    obtener_contexto_latest,  # =====NUEVO V21=====
+    leer_last_update,         # V31: de qué pasada es cada imagen
+    cabecera_coincide,
+    TOLERANCIA_CABECERA_S,
 )
 
 # =========================
@@ -51,6 +60,18 @@ CARPETA_LOGS = os.path.join(CARPETA_PRINCIPAL, "ocr_logs")
 
 DB_OCR = os.path.join(CARPETA_PRINCIPAL, "registro_vrp_ocr.csv")
 DB_CONSOLIDADO = os.path.join(CARPETA_PRINCIPAL, "registro_vrp_consolidado.csv")
+
+# V31: pasadas que el OCR leyó en Latest10NTI pero NO pasaron a registro_vrp_ocr.csv
+# porque Dist.png ya era de otra pasada (o su cabecera no se pudo leer). Se guarda
+# el VRP de la celda para no perder el dato de MIROVA, pero aparte: sin distancia
+# verificada no es una alerta. Archivo chico, una fila por pasada (sin repetir).
+LOG_RECHAZOS_CABECERA = os.path.join(CARPETA_PRINCIPAL, "ocr_rechazos_cabecera.csv")
+COLUMNAS_RECHAZOS = [
+    "fecha_proceso_utc", "volcan", "sensor", "fecha_pasada_utc", "vrp_mw_celda",
+    "zen_deg", "azi_deg", "cabecera_dist_utc", "cabecera_latest_utc", "motivo",
+]
+# Rechazos de esta corrida (para el resumen final del log del workflow).
+RECHAZOS_CABECERA_CORRIDA = []
 
 COLUMNAS_OCR = [
     "timestamp", "Fecha_Satelite_UTC", "Fecha_Captura_Chile",
@@ -105,6 +126,82 @@ def registrar_formato(path, volcan, sensor, tipo):
               f"(esperado 850×600/596) — registrado en mirova_formato_log.csv")
     except OSError as e:
         print(f"  ⚠️ no se pudo registrar formato: {e}")
+
+
+# =========================
+# V31: VERIFICACIÓN DE CABECERA "Last Update"
+# =========================
+# El fenómeno: MIROVA mantiene una sola imagen viva por volcán y sensor y la
+# reemplaza en cada pasada. Latest10NTI trae las 10 últimas pasadas, cada una
+# con su fecha y su VRP en su propia celda (ese VRP sí es de esa pasada). Pero
+# la distancia y la clase (ALERTA dentro del límite / fuera) salen de Dist.png,
+# cuya estrella marca SOLO la pasada de su cabecera. Si el OCR corre después de
+# que MIROVA procesó otra pasada, las celdas viejas heredaban la distancia y la
+# clase de la pasada nueva, y sus imágenes se guardaban con la hora vieja.
+# Medido (VRP Chile, docs/S150_IMAGENES_SNPP.md): 5 de 5 filas OCR de Suomi NPP
+# revisadas tenían la imagen y la estrella de la pasada siguiente.
+
+def _fmt_utc(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S") if dt is not None else ""
+
+
+def motivo_rechazo_cabecera(dt_pasada, cab_dist, hay_dist=True):
+    """
+    Devuelve None si Dist.png es de la pasada dt_pasada (la fila se puede crear),
+    o un texto corto con el motivo para NO crearla. Sin comas (va a CSV y log).
+    Cabecera ilegible o Dist ausente -> se rechaza: lo que no se puede
+    comprobar no entra como alerta.
+    """
+    if not hay_dist:
+        return "sin Dist.png: la distancia no se puede verificar"
+    if cab_dist is None:
+        return "cabecera Last Update de Dist.png ilegible: no se sabe de que pasada es"
+    if cabecera_coincide(cab_dist, dt_pasada):
+        return None
+    if dt_pasada.tzinfo is None:
+        dt_pasada = dt_pasada.replace(tzinfo=pytz.utc)
+    delta_min = (cab_dist - dt_pasada).total_seconds() / 60.0
+    lado = "POSTERIOR" if delta_min > 0 else "ANTERIOR"
+    return (f"Dist.png es de otra pasada ({lado}: Last Update {_fmt_utc(cab_dist)} "
+            f"vs pasada {_fmt_utc(dt_pasada)} = {delta_min:+.1f} min; "
+            f"tolerancia {TOLERANCIA_CABECERA_S} s)")
+
+
+def registrar_rechazo_cabecera(volcan, sensor, evento, cab_dist, cab_latest, motivo,
+                               ruta_log=None):
+    """Anota la pasada rechazada en LOG_RECHAZOS_CABECERA, una sola vez por
+    (volcan, sensor, pasada): el OCR vuelve a ver la misma celda cada hora
+    durante 24 h. Devuelve True si la anotó, False si ya estaba."""
+    import csv
+    ruta_log = ruta_log or LOG_RECHAZOS_CABECERA
+    clave = (volcan, sensor, _fmt_utc(evento['datetime']))
+    existentes = set()
+    if os.path.exists(ruta_log):
+        try:
+            with open(ruta_log, newline="", encoding="utf-8") as f:
+                for r in csv.DictReader(f):
+                    existentes.add((r.get("volcan"), r.get("sensor"), r.get("fecha_pasada_utc")))
+        except OSError as e:
+            print(f"  ⚠️ no se pudo leer {ruta_log}: {e}")
+    if clave in existentes:
+        return False
+    nuevo = not os.path.exists(ruta_log)
+    try:
+        with open(ruta_log, "a", newline="", encoding="utf-8") as f:
+            wr = csv.writer(f)
+            if nuevo:
+                wr.writerow(COLUMNAS_RECHAZOS)
+            wr.writerow([
+                _fmt_utc(datetime.now(pytz.utc)), volcan, sensor, clave[2],
+                evento.get('vrp_mw', ''),
+                '' if evento.get('zen') is None else evento['zen'],
+                '' if evento.get('azi') is None else evento['azi'],
+                _fmt_utc(cab_dist), _fmt_utc(cab_latest), motivo,
+            ])
+        return True
+    except OSError as e:
+        print(f"  ⚠️ no se pudo escribir {ruta_log}: {e}")
+        return False
 
 
 # =========================
@@ -168,6 +265,20 @@ def descargar_imagenes_permanentes(session, volcan_id, sensor, evento, es_verifi
         try:
             r = session.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=25)
             if r.status_code == 200 and len(r.content) > 5000:
+                # V31: esta descarga es aparte de la que se analizó, y MIROVA
+                # pudo cambiar la imagen entre medio. Se guarda con la hora de la
+                # pasada solo si su cabecera es de esa pasada; si no, no se guarda:
+                # evidencia con la hora de una pasada y el contenido de otra es peor
+                # que no tener evidencia.
+                import cv2
+                import numpy as np
+                img = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+                cab = leer_last_update(img)
+                if not cabecera_coincide(cab, dt_utc):
+                    print(f"  🚫 V31: {t} NO se guarda: cabecera {_fmt_utc(cab) or 'ilegible'} "
+                          f"no es la pasada {_fmt_utc(dt_utc)}")
+                    time.sleep(0.3)
+                    continue
                 with open(path_f, 'wb') as f:
                     f.write(r.content)
                 if t == "VRP":
@@ -206,7 +317,14 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
         print(f"  ⚠️ No se pudo descargar Dist.png")
     else:
         registrar_formato(temp_dist, nombre_v, sensor, "Dist")  # #1 alerta de formato
-    
+
+    # V31: de qué pasada es cada imagen descargada. Dist.png decide (de ahí salen la
+    # distancia y la clase); Latest10NTI se anota para el log.
+    cab_latest = leer_last_update(temp_latest)
+    cab_dist = leer_last_update(temp_dist) if os.path.exists(temp_dist) else None
+    print(f"  🕒 V31 Last Update: Latest10NTI={_fmt_utc(cab_latest) or 'ilegible'} | "
+          f"Dist={_fmt_utc(cab_dist) or ('ilegible' if os.path.exists(temp_dist) else 'sin imagen')}")
+
     # OCR de Latest10NTI
     eventos = extraer_eventos_latest10nti(temp_latest)
     
@@ -310,22 +428,44 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             print(f"      Nota: {clasificacion['nota']}")
         # ========================================================================
         
-        if not clasificacion['guardar']:
-            print(f"   ❌ SKIP: guardar=False (VRP inválido)")
+        tipo_cls = clasificacion['tipo_registro']
+        if tipo_cls in ('VRP_INVALIDO', 'DUPLICADO_LATEST'):
+            print(f"   ❌ SKIP: guardar=False ({tipo_cls})")
             continue
-        
-        # Verificar duplicados
+
+        # Verificar duplicados (V31: antes de la cabecera, para que una pasada que
+        # ya tiene fila no se anote como rechazada en las corridas siguientes)
         print(f"\n   🔍 VERIFICANDO DUPLICADOS:")
         print(f"      Buscando: ts={ts}, volcan={nombre_v}, sensor={sensor}")
-        
+
         es_nuevo = verificar_evento_no_existe(evento, nombre_v, sensor, df_consolidado, df_ocr)
-        
+
         print(f"      ¿Es nuevo? {es_nuevo}")
-        
+
         if not es_nuevo:
             print(f"   ⭕ SKIP: Ya existe en CSV (duplicado)")
             continue
-        
+
+        # V31: la distancia y la clase de arriba salen de Dist.png. Solo valen para
+        # esta pasada si la cabecera de Dist.png ES esta pasada. Si no, NO se crea
+        # la fila: el VRP de la celda es de esta pasada, pero la distancia y la
+        # clase serían de otra. El VRP queda anotado aparte en el log de rechazos.
+        motivo = motivo_rechazo_cabecera(dt_utc, cab_dist, hay_dist=img_dist_path is not None)
+        if motivo:
+            print(f"   🚫 SKIP V31: {motivo}")
+            print(f"      La clase '{tipo_cls}' y la distancia NO son de esta pasada; "
+                  f"el VRP {vrp_mw} MW sí es de su celda en Latest10NTI.")
+            if registrar_rechazo_cabecera(nombre_v, sensor, evento, cab_dist, cab_latest, motivo):
+                print(f"      📝 Anotado en {LOG_RECHAZOS_CABECERA}")
+            else:
+                print(f"      📝 Ya estaba anotado en {LOG_RECHAZOS_CABECERA}")
+            RECHAZOS_CABECERA_CORRIDA.append((nombre_v, sensor, _fmt_utc(dt_utc), vrp_mw, motivo))
+            continue
+
+        if not clasificacion['guardar']:
+            print(f"   ❌ SKIP: guardar=False ({tipo_cls})")
+            continue
+
         print(f"   ✅ ES NUEVO - Procediendo a guardar")
         
         # Descargar imágenes si es necesario
@@ -426,7 +566,9 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
                                                        evento.get('azi') is not None)
                                     else ''),
             'Nota_Validacion': nota_final,
-            'Version_OCR': '30.0'  # V30: + geometria de observacion (ZEN/AZI) y nivel del banner MIROVA
+            # V31: la fila solo se crea si la cabecera "Last Update" de Dist.png es
+            # esta pasada (antes, V30: + geometria ZEN/AZI y nivel del banner MIROVA)
+            'Version_OCR': '31.0'
         }
         
         eventos_nuevos.append(nuevo_evento)
@@ -504,7 +646,14 @@ def procesar():
             print(f"   - {ev['Fecha_Satelite_UTC']} | {ev['Volcan']} | {ev['Sensor']} | {ev['VRP_MW']} MW | {ev['Tipo_Registro']}")
     else:
         print(f"   ℹ️ No hay eventos nuevos para agregar")
-    
+
+    # V31: resumen de pasadas que NO entraron porque Dist.png era de otra pasada
+    print(f"\n🚫 V31 - PASADAS NO CREADAS POR CABECERA 'Last Update': {len(RECHAZOS_CABECERA_CORRIDA)}")
+    for v, s, f, vrp, motivo in RECHAZOS_CABECERA_CORRIDA:
+        print(f"   - {f} | {v} | {s} | {vrp} MW (celda) | {motivo}")
+    if RECHAZOS_CABECERA_CORRIDA:
+        print(f"   Detalle persistente en {LOG_RECHAZOS_CABECERA}")
+
     # Limpiar temporales
     import shutil
     if os.path.exists(CARPETA_TEMP):
