@@ -1,0 +1,4 @@
+fecha_proceso_utc,volcan,sensor,fecha_pasada_utc,vrp_mw_celda,zen_deg,azi_deg,cabecera_dist_utc,cabecera_latest_utc,motivo
+2026-10-10 10:31:42,PlanchonPeteroa,VIIRS375,2026-10-10 06:30:00,0.04,52,-84,2026-10-10 06:54:01,2026-10-10 06:54:01,Dist.png es de otra pasada (POSTERIOR: Last Update 2026-10-10 06:54:01 vs pasada 2026-10-10 06:30:00 = +24.0 min; tolerancia 120 s)
+2026-10-10 10:31:48,Nevados de Chillan,VIIRS375,2026-10-10 06:30:00,12.17,50,-84,2026-10-10 06:54:01,2026-10-10 06:54:01,Dist.png es de otra pasada (POSTERIOR: Last Update 2026-10-10 06:54:01 vs pasada 2026-10-10 06:30:00 = +24.0 min; tolerancia 120 s)
+2026-10-10 10:31:50,Nevados de Chillan,VIIRS,2026-10-10 06:30:00,32.0,50,-84,2026-10-10 06:54:01,2026-10-10 06:54:01,Dist.png es de otra pasada (POSTERIOR: Last Update 2026-10-10 06:54:01 vs pasada 2026-10-10 06:30:00 = +24.0 min; tolerancia 120 s)
