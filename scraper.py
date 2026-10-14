@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 import time
+import re
 import numpy as np
 
 # =========================
@@ -41,6 +42,17 @@ def log_debug(mensaje, tipo="INFO"):
             f.write(f"[{ahora}] {mensaje}\n")
     except OSError as e:
         print(f"⚠️ No se pudo escribir bitácora: {e}")
+
+def numero_tabla(texto):
+    """Numero de una celda de latest.php. MIROVA escribe los miles con coma ("2,178.53"); un
+    float() directo lanzaba ValueError y botaba el ciclo entero (issue #19, 36 ciclos caidos)."""
+    t = str(texto).strip()
+    if "," in t:
+        # Solo comas de miles bien formadas; una coma decimal ("0,5") daria 5 en silencio.
+        if not re.fullmatch(r"-?\d{1,3}(,\d{3})+(\.\d+)?", t):
+            raise ValueError(f"numero con coma no reconocido: {t!r}")
+        t = t.replace(",", "")
+    return float(t)
 
 def obtener_clasificacion_mirova(vrp_mw, es_alerta):
     # Escala única del sistema (Coppola), centralizada en volcanes.py
@@ -137,8 +149,13 @@ def procesar():
             # correcto en CI/UTC, pero corría 3-4 h si se ejecuta local en Chile)
             ts = int(dt_utc.replace(tzinfo=pytz.utc).timestamp())
 
-            vrp = float(cols[3].text.strip())
-            dist = float(cols[4].text.strip())
+            try:
+                vrp = numero_tabla(cols[3].text)
+                dist = numero_tabla(cols[4].text)
+            except ValueError:
+                # Una fila ilegible se salta y queda en la bitacora; no se cae el ciclo (issue #19).
+                log_debug(f"Fila ilegible en latest.php: VRP={cols[3].text!r} dist={cols[4].text!r}", "ADVERTENCIA")
+                continue
             sensor = cols[5].text.strip()
 
             es_dentro_rango = dist <= conf["limite_km"]
