@@ -22,8 +22,9 @@ QUE HACE
   Dist.png es POSTERIOR a la pasada (fuera de la tolerancia de V31) y cuyo VRP
   de celda es mayor que 0. Las demas causas de rechazo no se tocan.
 - Arma cada fila con la MISMA funcion que usa el scraper (fila_vrp_sin_geometria):
-  ALERTA_TERMICA_OCR, Distancia_km vacia, clase SIN_GEOMETRIA, metodo
-  vrp_sin_geometria_propia.
+  tipo propio ALERTA_SIN_GEOMETRIA_OCR (no ALERTA_TERMICA_OCR: sin distancia no
+  se sabe si el foco esta dentro del radio), Distancia_km vacia, clase
+  SIN_GEOMETRIA, metodo vrp_sin_geometria_propia.
 - No duplica: si la pasada ya existe (misma clave volcan, sensor y minuto UTC)
   en registro_vrp_ocr.csv, o en registro_vrp_consolidado.csv (la tabla manda),
   no se agrega.
@@ -128,10 +129,12 @@ def agregar(filas, ruta_ocr=CSV_OCR):
     with open(ruta_ocr, 'rb') as f:
         f.seek(-1, os.SEEK_END)
         termina_bien = f.read(1) == b'\n'
+    # El CSV del repo usa LF (lo escribe pandas en Linux): sin lineterminator el
+    # modulo csv escribe CRLF y el archivo queda con finales mezclados.
     with open(ruta_ocr, 'a', newline='', encoding='utf-8') as f:
         if not termina_bien:
-            f.write('\r\n')
-        w = csv.DictWriter(f, fieldnames=cabecera, extrasaction='ignore')
+            f.write('\n')
+        w = csv.DictWriter(f, fieldnames=cabecera, extrasaction='ignore', lineterminator='\n')
         for fila in filas:
             w.writerow({c: ('' if fila.get(c) is None else fila.get(c, '')) for c in cabecera})
 

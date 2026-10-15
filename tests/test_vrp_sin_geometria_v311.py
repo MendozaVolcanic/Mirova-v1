@@ -45,7 +45,9 @@ def test_pasada_0500_se_guarda_sin_distancia():
                                CAB_POSTERIOR, zen=62, azi=-84)
     assert f is not None
     assert set(f) == set(COLUMNAS_OCR)
-    assert f["Tipo_Registro"] == "ALERTA_TERMICA_OCR"
+    # tipo propio: sin distancia no se sabe si esta dentro del radio, asi que no
+    # es ALERTA_TERMICA_OCR (que si lo afirma)
+    assert f["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
     assert f["VRP_MW"] == 22.13
     assert f["Distancia_km"] == ""                 # desconocida, nunca 0
     assert f["Clasificacion Mirova"] == "SIN_GEOMETRIA"
@@ -109,8 +111,9 @@ COLS_RECH = ["fecha_proceso_utc", "volcan", "sensor", "fecha_pasada_utc", "vrp_m
 
 
 def _escribir(ruta, cols, filas):
+    # LF, como el CSV real del repo (lo escribe pandas en Linux)
     with open(ruta, "w", newline="", encoding="utf-8") as fh:
-        w = csv.DictWriter(fh, fieldnames=cols)
+        w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\n")
         w.writeheader()
         w.writerows(filas)
 
@@ -164,8 +167,11 @@ def test_backfill_agrega_solo_lo_que_corresponde_sin_duplicar(tmp_path):
     assert len(filas) == 2
     nueva = filas[-1]
     assert nueva["Distancia_km"] == "" and nueva["VRP_MW"] == "22.13"
+    assert nueva["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
     assert nueva["Metodo_Validacion"] == "vrp_sin_geometria_propia"
     assert "backfill" in nueva["Nota_Validacion"]
+    # fin de linea: el archivo es LF y lo agregado tambien (sin CRLF mezclado)
+    assert b"\r\n" not in ocr.read_bytes()
     # idempotente
     nuevas2, _ = bf.filas_a_agregar(str(rech), str(ocr), str(cons))
     assert nuevas2 == []
@@ -190,6 +196,30 @@ def test_maestro_publica_la_fila_con_distancia_vacia(tmp_path, monkeypatch):
     assert len(filas) == 1
     assert filas[0]["VRP_MW"] == "22.13"
     assert filas[0]["Distancia_km"] == ""
+    assert filas[0]["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
+
+
+def test_reconciliacion_del_tipo_sin_geometria(tmp_path):
+    """Caso Isluga 2026-10-14: la pasada de las 05:12 (0,08 MW) queda sin geometria;
+    la de las 05:30 figura en la tabla como FALSO_POSITIVO a 9,07 km. Un FP de OTRA
+    pasada no la reclasifica (no se sabe si es el mismo foco): sigue en su estrato.
+    Si la tabla trae ESA MISMA pasada como FP, la tabla conoce la distancia y gana."""
+    from scraper_ocr import fila_vrp_sin_geometria, COLUMNAS_OCR
+    import reconciliar_latest
+    f = fila_vrp_sin_geometria("Isluga", "VIIRS375", _utc("2026-10-14 05:12:00"), 0.08,
+                               _utc("2026-10-14 05:30:01"))
+    fp_0530 = {"timestamp": int(_utc("2026-10-14 05:30:01").timestamp()), "Volcan": "Isluga",
+               "Sensor": "VIIRS375", "Distancia_km": 9.07, "Tipo_Registro": "FALSO_POSITIVO"}
+    # como en produccion: el OCR se lee desde el CSV (la celda vacia llega como NaN)
+    ruta = tmp_path / "ocr.csv"
+    pd.DataFrame([f])[COLUMNAS_OCR].to_csv(ruta, index=False)
+    df_ocr = pd.read_csv(ruta)
+    df_ocr, n = reconciliar_latest.reconciliar(df_ocr, pd.DataFrame([fp_0530]))
+    assert n == 0 and df_ocr.iloc[0]["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
+    misma = dict(fp_0530, timestamp=f["timestamp"])
+    df_ocr, n = reconciliar_latest.reconciliar(df_ocr, pd.DataFrame([misma]))
+    assert n == 1 and df_ocr.iloc[0]["Tipo_Registro"] == "FALSO_POSITIVO_OCR"
+    assert df_ocr.iloc[0]["Distancia_km"] == 9.07
 
 
 def test_grafico_muestra_distancia_desconocida_y_no_nan():
@@ -200,7 +230,7 @@ def test_grafico_muestra_distancia_desconocida_y_no_nan():
         "VRP_MW": [22.13, 6.0],
         "Sensor": ["VIIRS375", "MODIS"],
         "Distancia_km": [float("nan"), 1.08],
-        "Tipo_Registro": ["ALERTA_TERMICA_OCR", "ALERTA_TERMICA_OCR"],
+        "Tipo_Registro": ["ALERTA_SIN_GEOMETRIA_OCR", "ALERTA_TERMICA_OCR"],
         "Clasificacion Mirova": ["SIN_GEOMETRIA", "Bajo"],
         "Confianza_Validacion": ["media", "alta"],
         "Ruta Foto": ["No descargada - la imagen de MIROVA ya era de otra pasada", "No descargada"],

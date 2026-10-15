@@ -34,7 +34,9 @@ def reconciliar(df_ocr, df_cons, marca=""):
           for _, r in df_cons.iterrows() if r.Tipo_Registro == 'FALSO_POSITIVO'}
     n = 0
     for i, r in df_ocr.iterrows():
-        if r.Tipo_Registro != 'ALERTA_TERMICA_OCR':
+        # V31.1: una fila sin geometria propia tambien se reclasifica si la tabla
+        # trae ESA MISMA pasada como FALSO_POSITIVO: la tabla si conoce su distancia.
+        if r.Tipo_Registro not in ('ALERTA_TERMICA_OCR', 'ALERTA_SIN_GEOMETRIA_OCR'):
             continue
         key = (int(r.timestamp), r.Volcan, r.Sensor)
         if key in fp:

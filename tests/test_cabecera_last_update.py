@@ -232,7 +232,7 @@ def test_corrida_lascar_20260822_la_fila_0506_no_hereda_geometria(fixture_path, 
     assert por_fecha["2026-08-22 05:24:01"]["Distancia_km"] != ""
     assert vieja["Clasificacion Mirova"] == "SIN_GEOMETRIA"
     assert vieja["Metodo_Validacion"] == "vrp_sin_geometria_propia"
-    assert vieja["Tipo_Registro"] == "ALERTA_TERMICA_OCR"
+    assert vieja["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
 
     with open(log, newline="", encoding="utf-8") as f:
         rech = list(csv.DictReader(f))

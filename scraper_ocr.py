@@ -9,8 +9,9 @@ las imágenes permanentes se guardan solo si su cabecera es esa pasada.
 Ver motivo_rechazo_cabecera() y ocr_utils.leer_last_update().
 
 CAMBIO V31.1 (2026-10-15): si Dist.png es de una pasada POSTERIOR y el VRP de la
-celda es mayor que 0, la pasada SÍ entra a registro_vrp_ocr.csv con su VRP, sin
-distancia (vacía, no 0) y con clase SIN_GEOMETRIA (Metodo_Validacion
+celda es mayor que 0, la pasada SÍ entra a registro_vrp_ocr.csv con su VRP, con
+tipo propio ALERTA_SIN_GEOMETRIA_OCR, sin distancia (vacía, no 0) y con clase
+SIN_GEOMETRIA (Metodo_Validacion
 vrp_sin_geometria_propia). El log de rechazos se sigue llenando igual. Ver
 fila_vrp_sin_geometria() y backfill_vrp_sin_geometria_v31.py.
 
@@ -222,11 +223,16 @@ def registrar_rechazo_cabecera(volcan, sensor, evento, cab_dist, cab_latest, mot
 # Caso que lo motivó: Nevados de Chillán 2026-10-15 05:00 UTC, 22,13 MW en
 # VIIRS375 y 14 MW en VIIRS750, en erupción, ausente de latest.php y rechazada
 # por V31 (Dist.png de las 06:00).
-# Regla: la fila se guarda como ALERTA_TERMICA_OCR con el VRP de la celda, la
-# distancia VACÍA (0 significaría "en el cráter") y la clase SIN_GEOMETRIA. La
-# distancia y la clase nunca se copian de otra pasada. Solo aplica cuando Dist.png
-# es POSTERIOR: si es anterior, ilegible o no existe, no hay razón para creer que
-# la celda de la pasada ya está escrita y se sigue rechazando como en V31.
+# Regla: la fila se guarda con un tipo PROPIO, ALERTA_SIN_GEOMETRIA_OCR, con el
+# VRP de la celda, la distancia VACÍA (0 significaría "en el cráter") y la clase
+# SIN_GEOMETRIA. No es ALERTA_TERMICA_OCR porque esa etiqueta dice "dentro del
+# radio del volcán", y de esta pasada no se sabe la distancia: puede ser un foco
+# lejano (caso Isluga 2026-10-14 05:12, 0,08 MW, cuya pasada de las 05:30 figura
+# en la tabla como FALSO_POSITIVO a 9,07 km). La distancia y la clase nunca se
+# copian de otra pasada. Solo aplica cuando Dist.png es POSTERIOR: si es
+# anterior, ilegible o no existe, no hay razón para creer que la celda de la
+# pasada ya está escrita y se sigue rechazando como en V31.
+TIPO_SIN_GEOMETRIA = "ALERTA_SIN_GEOMETRIA_OCR"
 METODO_SIN_GEOMETRIA = "vrp_sin_geometria_propia"
 CLASIFICACION_SIN_GEOMETRIA = "SIN_GEOMETRIA"
 VERSION_OCR_SIN_GEOMETRIA = "31.1"
@@ -287,7 +293,7 @@ def fila_vrp_sin_geometria(volcan, sensor, dt_pasada, vrp_mw, cab_dist,
         'Sensor': sensor,
         'VRP_MW': vrp,
         'Distancia_km': '',            # desconocida, NUNCA 0
-        'Tipo_Registro': 'ALERTA_TERMICA_OCR',
+        'Tipo_Registro': TIPO_SIN_GEOMETRIA,
         'Clasificacion Mirova': CLASIFICACION_SIN_GEOMETRIA,
         'Ruta Foto': RUTA_FOTO_SIN_GEOMETRIA,
         'Fecha_Proceso_GitHub': ahora_cl,

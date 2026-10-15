@@ -127,7 +127,9 @@ def merge():
     antes = len(df_publicable)
     
     # Filtro 1: Solo tipos ALERTA
-    tipos_publicables = ['ALERTA_TERMICA', 'ALERTA_TERMICA_OCR']
+    # V31.1: ALERTA_SIN_GEOMETRIA_OCR tambien se publica (es VRP de MIROVA de esa
+    # pasada); el grafico la muestra con "distancia desconocida".
+    tipos_publicables = ['ALERTA_TERMICA', 'ALERTA_TERMICA_OCR', 'ALERTA_SIN_GEOMETRIA_OCR']
     df_publicable = df_publicable[df_publicable['Tipo_Registro'].isin(tipos_publicables)].copy()
     print(f"   Filtro tipo: {antes} → {len(df_publicable)} eventos")
     
