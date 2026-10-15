@@ -160,6 +160,25 @@ en [`volcanes.py`](volcanes.py):
 * `registro_vrp_ocr.csv`: Eventos recuperados por OCR (incluye falsos positivos para auditoría)
 * `registro_vrp_maestro_publicable.csv`: Base final combinada y filtrada para el Dashboard
 
+### **Zona horaria de cada columna de hora (issue #23):**
+En `registro_vrp_consolidado.csv` y `registro_vrp_ocr.csv`:
+
+| Columna | Zona | Qué es |
+|---|---|---|
+| `Fecha_Satelite_UTC` | UTC | Hora de la pasada del satélite (`timestamp` es su epoch) |
+| `Fecha_Captura_Chile` | Hora de Chile (`America/Santiago`), sin desfase | La misma pasada, en hora de Chile |
+| `Fecha_Proceso_GitHub` | **Hora de Chile**, sin desfase (pese al nombre, NO es UTC) | Corrida que vio la fila por primera vez |
+| `Ultima_Actualizacion` | **Hora de Chile**, sin desfase | Última corrida que la encontró |
+| `Fecha_Proceso_UTC` | UTC, ISO con `Z` | `Fecha_Proceso_GitHub` en UTC, del mismo instante |
+| `Ultima_Actualizacion_UTC` | UTC, ISO con `Z` | `Ultima_Actualizacion` en UTC, del mismo instante |
+
+Por qué las dos últimas: una hora de Chile sin desfase es ambigua una hora cada abril (la hora 23:00 a 23:59
+del día en que Chile vuelve a UTC-4 ocurre dos veces). Para análisis, usar `Fecha_Satelite_UTC` y las
+columnas `_UTC`, nunca restar un -3 o -4 fijo. La historia la rellena `backfill_horas_utc.py` desde la hora de
+Chile con `zoneinfo`; quedan **vacías** las horas ambiguas (en el consolidado, 10 filas de
+`Fecha_Proceso_UTC` y 11 de `Ultima_Actualizacion_UTC`, todas del 2026-04-04 entre 23:45 y 23:51) y las
+filas de enero de 2026 anteriores a la columna de proceso (104 y 96). No se adivinan.
+
 ### **Registros por volcán:**
 * `registro_[Volcan].csv`: CSV individual por cada volcán (se actualiza automáticamente)
 

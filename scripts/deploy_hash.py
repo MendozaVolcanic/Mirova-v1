@@ -39,7 +39,11 @@ CSV_FUENTE = [
 # Sin esto, un cambio de codigo quedaba sin efecto hasta que entrara un dato
 # nuevo por casualidad.
 ASSETS_PUBLICABLES = ["index.html", "volcanes.js", "visualizador.py"]
-VOLATILES = {"Fecha_Proceso_GitHub", "Ultima_Actualizacion", "Editado"}
+# Fecha_Proceso_UTC y Ultima_Actualizacion_UTC (issue #23) son las mismas horas en
+# UTC: registro_vrp_positivos.csv las lleva y Ultima_Actualizacion_UTC cambia en
+# cada corrida, asi que sin quitarlas el sitio se republicaria cada 5 minutos.
+VOLATILES = {"Fecha_Proceso_GitHub", "Ultima_Actualizacion", "Editado",
+             "Fecha_Proceso_UTC", "Ultima_Actualizacion_UTC"}
 SEP = b"::FIN::"
 
 h = hashlib.sha256()

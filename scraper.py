@@ -14,6 +14,7 @@ import numpy as np
 
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
 from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
+from horas_utc import ahora_cl_y_utc, COL_PROCESO_UTC, COL_ULTIMA_UTC
 
 CARPETA_PRINCIPAL = "monitoreo_satelital"
 RUTA_IMAGENES_BASE = os.path.join(CARPETA_PRINCIPAL, "imagenes_satelitales")
@@ -26,7 +27,14 @@ COLUMNAS_ESTANDAR = [
     "timestamp", "Fecha_Satelite_UTC", "Fecha_Captura_Chile", "Volcan",
     "Sensor", "VRP_MW", "Distancia_km", "Tipo_Registro",
     "Clasificacion Mirova", "Ruta Foto",
-    "Fecha_Proceso_GitHub", "Ultima_Actualizacion", "Editado"
+    "Fecha_Proceso_GitHub", "Ultima_Actualizacion", "Editado",
+    # POR QUE (issue #23): Fecha_Proceso_GitHub y Ultima_Actualizacion estan en
+    # HORA DE CHILE (America/Santiago), sin desfase, aunque el nombre de la primera
+    # suene a reloj de GitHub (UTC). Sin desfase, la hora 23:00 a 23:59 del dia en
+    # que Chile vuelve a UTC-4 queda ambigua. Por eso se AGREGAN al final sus
+    # versiones en UTC (ISO con Z), escritas desde el mismo instante. No se
+    # renombra nada: VRP Chile y los graficos leen las columnas por nombre.
+    COL_PROCESO_UTC, COL_ULTIMA_UTC,
 ]
 
 # =========================
@@ -114,7 +122,8 @@ def procesar():
     os.makedirs(CARPETA_PRINCIPAL, exist_ok=True)
 
     session = requests.Session()
-    ahora_cl = datetime.now(pytz.timezone('America/Santiago')).strftime("%Y-%m-%d %H:%M:%S")
+    # Hora de Chile (columnas de siempre) y hora UTC (issue #23) del MISMO instante.
+    ahora_cl, ahora_utc = ahora_cl_y_utc(datetime.now(pytz.utc))
 
     log_debug("INICIO SCRAPER V17 (+ Tupungatito)", "INFO")
 
@@ -182,10 +191,17 @@ def procesar():
 
             if not previo.empty:
                 f_desc = previo.iloc[0]['Fecha_Proceso_GitHub']
+                # La UTC de la primera vez que se vio: se conserva si ya esta. Si la
+                # fila es anterior a la columna queda vacia y la rellena
+                # backfill_horas_utc.py desde la hora de Chile (no se inventa).
+                f_desc_utc = previo.iloc[0].get(COL_PROCESO_UTC, "")
+                if pd.isna(f_desc_utc):
+                    f_desc_utc = ""
                 ruta_foto = previo.iloc[0]['Ruta Foto']
                 editado = previo.iloc[0].get('Editado', "NO")
             else:
                 f_desc = ahora_cl
+                f_desc_utc = ahora_utc
                 ruta_foto = "No descargada"
                 editado = "NO"
 
@@ -208,7 +224,9 @@ def procesar():
                 "Ruta Foto": ruta_foto,
                 "Fecha_Proceso_GitHub": f_desc,
                 "Ultima_Actualizacion": ahora_cl,
-                "Editado": editado
+                "Editado": editado,
+                COL_PROCESO_UTC: f_desc_utc,
+                COL_ULTIMA_UTC: ahora_utc,
             })
 
         if nuevos_datos:
@@ -217,7 +235,9 @@ def procesar():
                 [df_master.drop(columns=['Fecha_Satelite_UTC_dt'], errors="ignore"), df_nuevos]
             ).drop_duplicates(subset=['timestamp', 'Volcan', 'Sensor'], keep='last')
 
-            df_final = df_final[COLUMNAS_ESTANDAR].sort_values('timestamp', ascending=False)
+            # reindex y no [COLUMNAS_ESTANDAR]: un CSV anterior a las columnas UTC
+            # no las trae y la seleccion directa lanzaria KeyError.
+            df_final = df_final.reindex(columns=COLUMNAS_ESTANDAR).sort_values('timestamp', ascending=False)
 
             df_final.to_csv(DB_MASTER, index=False)
             df_final[df_final['Tipo_Registro'] == "ALERTA_TERMICA"].to_csv(DB_POSITIVOS, index=False)

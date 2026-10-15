@@ -233,6 +233,11 @@ def test_corrida_lascar_20260822_la_fila_0506_no_hereda_geometria(fixture_path, 
     assert vieja["Clasificacion Mirova"] == "SIN_GEOMETRIA"
     assert vieja["Metodo_Validacion"] == "vrp_sin_geometria_propia"
     assert vieja["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
+    # issue #23: las dos filas llevan la hora de proceso en Chile (agosto, UTC-4)
+    # y en UTC, del mismo instante de la corrida
+    for f in filas:
+        assert f["Fecha_Proceso_GitHub"] == f["Ultima_Actualizacion"] == "2026-08-22 04:31:37"
+        assert f["Fecha_Proceso_UTC"] == f["Ultima_Actualizacion_UTC"] == "2026-08-22T08:31:37Z"
 
     with open(log, newline="", encoding="utf-8") as f:
         rech = list(csv.DictReader(f))

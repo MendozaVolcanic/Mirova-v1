@@ -100,10 +100,12 @@ def filas_a_agregar(ruta_rechazos=CSV_RECHAZOS, ruta_ocr=CSV_OCR, ruta_cons=CSV_
                 continue
             proc = _utc(r.get('fecha_proceso_utc'))
             ahora_cl = proc.astimezone(SANTIAGO).strftime("%Y-%m-%d %H:%M:%S") if proc else None
+            # issue #23: el log de rechazos ya trae la hora en UTC; se usa directo.
+            ahora_utc = proc.strftime("%Y-%m-%dT%H:%M:%SZ") if proc else None
             fila = fila_vrp_sin_geometria(
                 r.get('volcan'), r.get('sensor'), dt, r.get('vrp_mw_celda'), cab,
                 zen=r.get('zen_deg'), azi=r.get('azi_deg'), ahora_cl=ahora_cl,
-                origen='backfill')
+                origen='backfill', ahora_utc=ahora_utc)
             if fila is None:
                 descartes['no_posterior_o_vrp_no_positivo'] += 1
                 continue

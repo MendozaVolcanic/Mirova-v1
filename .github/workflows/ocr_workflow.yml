@@ -89,6 +89,13 @@ jobs:
       - name: Backfill V31.1 (VRP sin geometria propia)
         run: python backfill_vrp_sin_geometria_v31.py
 
+      # Issue #23: rellena Fecha_Proceso_UTC y Ultima_Actualizacion_UTC de las
+      # filas viejas desde la hora de Chile (una hora ambigua queda vacia). Mismo
+      # criterio que el paso anterior: va en el workflow y no como datos del PR.
+      # Idempotente. Solo toca el CSV del OCR; el consolidado lo rellena main.yml.
+      - name: Backfill horas UTC (OCR)
+        run: python backfill_horas_utc.py monitoreo_satelital/registro_vrp_ocr.csv
+
       - name: Reconciliar OCR contra latest.php (auto-corrige mal-ubicaciones)
         run: python reconciliar_latest.py
 
