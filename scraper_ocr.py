@@ -53,6 +53,7 @@ from ocr_utils import (
 
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
 from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
+from horas_utc import ahora_cl_y_utc, convertir_local_cl, COL_PROCESO_UTC, COL_ULTIMA_UTC
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 
@@ -91,6 +92,12 @@ COLUMNAS_OCR = [
     # el CSV lo consume VRP Chile y su frontend parte por split(",") sin comillas,
     # asi que ningun valor puede traer coma, y toda fila lleva todas las columnas).
     'Zenith_Sat_deg', 'Azimut_Sat_deg', 'Nivel_Anomalia_MIROVA', 'Confianza_Geometria',
+    # POR QUE (issue #23): Fecha_Proceso_GitHub y Ultima_Actualizacion estan en
+    # HORA DE CHILE (America/Santiago), sin desfase, aunque la primera suene a
+    # reloj de GitHub (UTC). Sin desfase la hora repetida de abril queda ambigua.
+    # Se AGREGAN al final sus versiones en UTC (ISO con Z) del mismo instante; no
+    # se renombra nada. La historia la rellena backfill_horas_utc.py.
+    COL_PROCESO_UTC, COL_ULTIMA_UTC,
 ]
 
 # =========================
@@ -252,7 +259,8 @@ def dist_es_posterior(dt_pasada, cab_dist):
 
 
 def fila_vrp_sin_geometria(volcan, sensor, dt_pasada, vrp_mw, cab_dist,
-                           zen=None, azi=None, ahora_cl=None, origen="ocr"):
+                           zen=None, azi=None, ahora_cl=None, origen="ocr",
+                           ahora_utc=None):
     """Fila de registro_vrp_ocr.csv para una pasada cuyo VRP es válido pero cuya
     Dist.png ya era de una pasada posterior. Devuelve None si no corresponde
     (VRP no positivo o Dist.png no posterior). `origen` solo cambia la nota
@@ -269,7 +277,10 @@ def fila_vrp_sin_geometria(volcan, sensor, dt_pasada, vrp_mw, cab_dist,
     if not dist_es_posterior(dt_pasada, cab_dist):
         return None
     if ahora_cl is None:
-        ahora_cl = datetime.now(pytz.timezone('America/Santiago')).strftime("%Y-%m-%d %H:%M:%S")
+        ahora_cl, ahora_utc = ahora_cl_y_utc(datetime.now(pytz.utc))
+    elif ahora_utc is None:
+        # Llamada con solo la hora de Chile: se convierte (vacia si es ambigua).
+        ahora_utc, _ = convertir_local_cl(ahora_cl)
     delta_min = (cab_dist - dt_pasada).total_seconds() / 60.0
     nota = (f"VRP de la celda de esta pasada en Latest10NTI. SIN geometria propia: "
             f"cuando el OCR corrio Dist.png ya era la pasada de las {_fmt_utc(cab_dist)} UTC "
@@ -313,6 +324,8 @@ def fila_vrp_sin_geometria(volcan, sensor, dt_pasada, vrp_mw, cab_dist,
         'Confianza_Geometria': ('alta' if zen not in (None, '') and azi not in (None, '')
                                 else 'parcial' if zen not in (None, '') or azi not in (None, '')
                                 else ''),
+        COL_PROCESO_UTC: ahora_utc,
+        COL_ULTIMA_UTC: ahora_utc,
     }
 
 
@@ -514,8 +527,9 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
     
     # Procesar cada evento
     eventos_nuevos = []
-    ahora_cl = datetime.now(pytz.timezone('America/Santiago')).strftime("%Y-%m-%d %H:%M:%S")
-    
+    # Hora de Chile (columnas de siempre) y hora UTC (issue #23) del MISMO instante.
+    ahora_cl, ahora_utc = ahora_cl_y_utc(datetime.now(pytz.utc))
+
     for i, evento in enumerate(eventos, 1):
         ts = evento['timestamp']
         vrp_mw = evento['vrp_mw']
@@ -576,7 +590,8 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             # sin distancia ni clase (ver fila_vrp_sin_geometria).
             fila_sg = fila_vrp_sin_geometria(
                 nombre_v, sensor, dt_utc, vrp_mw, cab_dist,
-                zen=evento.get('zen'), azi=evento.get('azi'), ahora_cl=ahora_cl)
+                zen=evento.get('zen'), azi=evento.get('azi'), ahora_cl=ahora_cl,
+                ahora_utc=ahora_utc)
             if fila_sg:
                 print(f"   💾 V31.1: se guarda el VRP {vrp_mw} MW SIN distancia ni clase "
                       f"({METODO_SIN_GEOMETRIA})")
@@ -663,6 +678,8 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Ruta Foto': ruta_foto,
             'Fecha_Proceso_GitHub': ahora_cl,
             'Ultima_Actualizacion': ahora_cl,
+            COL_PROCESO_UTC: ahora_utc,
+            COL_ULTIMA_UTC: ahora_utc,
             'Editado': 'NO',
             'Color_Punto_Dist': evento.get('color_punto', 'sin_punto'),
             'Confianza_Validacion': confianza_final,
@@ -754,7 +771,8 @@ def procesar():
         df_ocr_final = pd.concat([df_ocr, df_nuevos], ignore_index=True)
         print(f"   CSV final: {len(df_ocr_final)} filas totales")
         
-        df_ocr_final = df_ocr_final[COLUMNAS_OCR].sort_values('timestamp', ascending=False)
+        # reindex y no [COLUMNAS_OCR]: tolera un CSV anterior a alguna columna.
+        df_ocr_final = df_ocr_final.reindex(columns=COLUMNAS_OCR).sort_values('timestamp', ascending=False)
         
         df_ocr_final.to_csv(DB_OCR, index=False)
         print(f"   ✅ Guardado en: {DB_OCR}")

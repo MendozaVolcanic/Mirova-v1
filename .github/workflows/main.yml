@@ -36,6 +36,16 @@ jobs:
       - name: Ejecutar Scraper
         run: python scraper.py
 
+      # Issue #23: rellena Fecha_Proceso_UTC y Ultima_Actualizacion_UTC de las
+      # filas viejas desde la hora de Chile (las ambiguas del cambio de hora de
+      # abril quedan vacias). Va aca y no como commit de datos en el PR porque
+      # este CSV se reescribe cada 5 minutos: un commit de datos chocaria con el
+      # scraper (mismo criterio que el PR #22). Idempotente: la primera corrida
+      # tras el merge rellena la historia y despues no cambia nada. Solo toca el
+      # consolidado; el CSV del OCR lo rellena ocr_workflow.yml.
+      - name: Backfill horas UTC (consolidado)
+        run: python backfill_horas_utc.py monitoreo_satelital/registro_vrp_consolidado.csv
+
       - name: Guardar cambios en GitHub
         run: |
           git config --global user.name "VolcanoBot"
