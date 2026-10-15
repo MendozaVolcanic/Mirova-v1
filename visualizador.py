@@ -45,6 +45,25 @@ MIROVA_BANDS = [
     (1e9,   1e10, "Muy Alto", "rgba(220, 20, 60, 0.15)")
 ]
 
+
+def texto_distancia(row):
+    """Linea "Dist: ..." del hover. V31.1: una fila del OCR puede traer la
+    distancia VACIA porque Dist.png ya era de otra pasada (Metodo_Validacion
+    vrp_sin_geometria_propia). Vacia significa desconocida: nunca se muestra como
+    0 km (que seria "en el crater") ni como "nan km"."""
+    d = row.get('Distancia_km')
+    try:
+        if d is not None and str(d).strip() != '' and pd.notna(d):
+            return f"Dist: {float(d):.1f} km"
+    except (TypeError, ValueError):
+        pass
+    # El maestro publicable no trae Metodo_Validacion; la clase SIN_GEOMETRIA si.
+    if (str(row.get('Metodo_Validacion', '')).strip() == 'vrp_sin_geometria_propia'
+            or str(row.get('Clasificacion Mirova', '')).strip() == 'SIN_GEOMETRIA'):
+        return "Dist: desconocida (la imagen de MIROVA era de otra pasada)"
+    return "Dist: sin dato"
+
+
 def cargar_anotaciones():
     """Lee anotaciones.csv y devuelve {(timestamp, Volcan): motivo}. El dato crudo
     NO se toca; esto solo afecta la visualizacion. Si el archivo no existe devuelve
@@ -208,7 +227,7 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
                     f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
                     f"{row['VRP_MW']:.2f} MW<br>"
                     f"{row['Sensor']}<br>"
-                    f"Dist: {row['Distancia_km']:.1f} km<br>"
+                    f"{texto_distancia(row)}<br>"
                     f"Conf: {confianza}<br>"
                     f"Fuente: {fuente}<br>"
                     f"<i>Click para ver carpeta</i>"
@@ -219,7 +238,7 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
                     f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
                     f"{row['VRP_MW']:.2f} MW<br>"
                     f"{row['Sensor']}<br>"
-                    f"Dist: {row['Distancia_km']:.1f} km<br>"
+                    f"{texto_distancia(row)}<br>"
                     f"Conf: {confianza}<br>"
                     f"Fuente: {fuente}"
                 )
@@ -263,7 +282,7 @@ def crear_grafico(df_v, v, modo_log=False, anotaciones_v=None):
             hover_arte.append(
                 f"<b>{row['Fecha_Satelite_UTC']}</b><br>"
                 f"{row['VRP_MW']:.2f} MW · {row['Sensor']}<br>"
-                f"Dist: {row['Distancia_km']:.1f} km<br>"
+                f"{texto_distancia(row)}<br>"
                 f"<b>⚠ Marcado como posible artefacto</b><br>"
                 f"<i>{motivo}</i>"
             )
