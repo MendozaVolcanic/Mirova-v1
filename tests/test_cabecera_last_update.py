@@ -189,11 +189,12 @@ class _SesionFalsa:
 
 
 @requiere_tesseract
-def test_corrida_lascar_20260822_no_crea_la_fila_0506(fixture_path, tmp_path, monkeypatch):
+def test_corrida_lascar_20260822_la_fila_0506_no_hereda_geometria(fixture_path, tmp_path, monkeypatch):
     """Reproduce la corrida del OCR de las 08:31 UTC del 2026-08-22, cuando MIROVA
     servía las imágenes de las 05:24:01. Antes creaba DOS filas ALERTA_TERMICA_OCR
-    (05:06 con 1,65 MW y 05:24 con 0,23 MW, ambas a 1,22 km). Ahora solo la de las
-    05:24, y la de las 05:06 queda en el log de rechazos con el VRP de su celda."""
+    (05:06 con 1,65 MW y 05:24 con 0,23 MW, ambas a 1,22 km). V31 creaba solo la de
+    las 05:24 y la de las 05:06 quedaba en el log de rechazos con el VRP de su celda.
+    V31.1 la guarda además en el registro con ese VRP y sin distancia ni clase."""
     import scraper_ocr
 
     ahora = _utc("2026-08-22 08:31:37")
@@ -219,11 +220,19 @@ def test_corrida_lascar_20260822_no_crea_la_fila_0506(fixture_path, tmp_path, mo
     df_ocr = pd.DataFrame(columns=scraper_ocr.COLUMNAS_OCR)
     filas = scraper_ocr.procesar_volcan_sensor(sesion, id_lascar, "VIIRS375", df_ocr, pd.DataFrame())
 
-    fechas = [f["Fecha_Satelite_UTC"] for f in filas]
-    assert "2026-08-22 05:06:00" not in fechas
-    assert fechas == ["2026-08-22 05:24:01"]
-    assert filas[0]["VRP_MW"] == 0.23
-    assert filas[0]["Version_OCR"] == "31.0"
+    # V31.1: la fila de las 05:06 SÍ se crea, pero con el VRP de su celda y SIN
+    # la distancia ni la clase de la estrella de las 05:24 (con V31 se perdía).
+    por_fecha = {f["Fecha_Satelite_UTC"]: f for f in filas}
+    assert sorted(por_fecha) == ["2026-08-22 05:06:00", "2026-08-22 05:24:01"]
+    assert por_fecha["2026-08-22 05:24:01"]["VRP_MW"] == 0.23
+    assert por_fecha["2026-08-22 05:24:01"]["Version_OCR"] == "31.0"
+    vieja = por_fecha["2026-08-22 05:06:00"]
+    assert vieja["VRP_MW"] == 1.65
+    assert vieja["Distancia_km"] == ""                       # no la de las 05:24
+    assert por_fecha["2026-08-22 05:24:01"]["Distancia_km"] != ""
+    assert vieja["Clasificacion Mirova"] == "SIN_GEOMETRIA"
+    assert vieja["Metodo_Validacion"] == "vrp_sin_geometria_propia"
+    assert vieja["Tipo_Registro"] == "ALERTA_TERMICA_OCR"
 
     with open(log, newline="", encoding="utf-8") as f:
         rech = list(csv.DictReader(f))

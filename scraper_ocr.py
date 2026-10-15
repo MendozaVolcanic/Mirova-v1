@@ -8,6 +8,12 @@ va a monitoreo_satelital/ocr_rechazos_cabecera.csv con el VRP de su celda, y
 las imágenes permanentes se guardan solo si su cabecera es esa pasada.
 Ver motivo_rechazo_cabecera() y ocr_utils.leer_last_update().
 
+CAMBIO V31.1 (2026-10-15): si Dist.png es de una pasada POSTERIOR y el VRP de la
+celda es mayor que 0, la pasada SÍ entra a registro_vrp_ocr.csv con su VRP, sin
+distancia (vacía, no 0) y con clase SIN_GEOMETRIA (Metodo_Validacion
+vrp_sin_geometria_propia). El log de rechazos se sigue llenando igual. Ver
+fila_vrp_sin_geometria() y backfill_vrp_sin_geometria_v31.py.
+
 CAMBIO V21:
 - NUEVO: Llamada a obtener_contexto_latest() después de OCR
 - MODIFICADO: Pasar contexto_latest a analizar_puntos_distancia()
@@ -202,6 +208,106 @@ def registrar_rechazo_cabecera(volcan, sensor, evento, cab_dist, cab_latest, mot
     except OSError as e:
         print(f"  ⚠️ no se pudo escribir {ruta_log}: {e}")
         return False
+
+
+# =========================
+# V31.1: GUARDAR EL VRP AUNQUE LA GEOMETRÍA SEA DE OTRA PASADA
+# =========================
+# El fenómeno: cuando MIROVA procesa dos pasadas seguidas antes de que corra el
+# OCR (o cuando su tabla latest.php se salta una pasada), Dist.png ya muestra la
+# pasada POSTERIOR. V31 hizo bien en no copiar esa distancia ni esa clase a la
+# pasada vieja, pero también botaba su VRP, que sí es de ella: sale de su propia
+# celda en Latest10NTI. Una pasada que la tabla se salta y que no es la última
+# nunca tendrá su propia Dist.png, así que con V31 se perdía siempre.
+# Caso que lo motivó: Nevados de Chillán 2026-10-15 05:00 UTC, 22,13 MW en
+# VIIRS375 y 14 MW en VIIRS750, en erupción, ausente de latest.php y rechazada
+# por V31 (Dist.png de las 06:00).
+# Regla: la fila se guarda como ALERTA_TERMICA_OCR con el VRP de la celda, la
+# distancia VACÍA (0 significaría "en el cráter") y la clase SIN_GEOMETRIA. La
+# distancia y la clase nunca se copian de otra pasada. Solo aplica cuando Dist.png
+# es POSTERIOR: si es anterior, ilegible o no existe, no hay razón para creer que
+# la celda de la pasada ya está escrita y se sigue rechazando como en V31.
+METODO_SIN_GEOMETRIA = "vrp_sin_geometria_propia"
+CLASIFICACION_SIN_GEOMETRIA = "SIN_GEOMETRIA"
+VERSION_OCR_SIN_GEOMETRIA = "31.1"
+RUTA_FOTO_SIN_GEOMETRIA = "No descargada - la imagen de MIROVA ya era de otra pasada"
+
+
+def dist_es_posterior(dt_pasada, cab_dist):
+    """True si la cabecera de Dist.png es de una pasada POSTERIOR a dt_pasada
+    (fuera de la tolerancia de V31). Cabecera ilegible -> False."""
+    if cab_dist is None or dt_pasada is None:
+        return False
+    if dt_pasada.tzinfo is None:
+        dt_pasada = dt_pasada.replace(tzinfo=pytz.utc)
+    if cabecera_coincide(cab_dist, dt_pasada):
+        return False
+    return cab_dist > dt_pasada
+
+
+def fila_vrp_sin_geometria(volcan, sensor, dt_pasada, vrp_mw, cab_dist,
+                           zen=None, azi=None, ahora_cl=None, origen="ocr"):
+    """Fila de registro_vrp_ocr.csv para una pasada cuyo VRP es válido pero cuya
+    Dist.png ya era de una pasada posterior. Devuelve None si no corresponde
+    (VRP no positivo o Dist.png no posterior). `origen` solo cambia la nota
+    ("ocr" en la corrida normal, "backfill" desde ocr_rechazos_cabecera.csv).
+    Ningún valor lleva coma: el CSV lo consume VRP Chile partiendo por coma."""
+    try:
+        vrp = float(vrp_mw)
+    except (TypeError, ValueError):
+        return None
+    if not vrp > 0:
+        return None
+    if dt_pasada.tzinfo is None:
+        dt_pasada = dt_pasada.replace(tzinfo=pytz.utc)
+    if not dist_es_posterior(dt_pasada, cab_dist):
+        return None
+    if ahora_cl is None:
+        ahora_cl = datetime.now(pytz.timezone('America/Santiago')).strftime("%Y-%m-%d %H:%M:%S")
+    delta_min = (cab_dist - dt_pasada).total_seconds() / 60.0
+    nota = (f"VRP de la celda de esta pasada en Latest10NTI. SIN geometria propia: "
+            f"cuando el OCR corrio Dist.png ya era la pasada de las {_fmt_utc(cab_dist)} UTC "
+            f"({delta_min:+.0f} min) y la regla V31 no copia su distancia ni su clase. "
+            f"Distancia_km vacia = desconocida (no es 0 = en el crater)")
+    if origen == "backfill":
+        nota += " | recuperada de ocr_rechazos_cabecera.csv (backfill V31.1)"
+    if sensor in ('VIIRS', 'MODIS') and vrp >= 1 and vrp == int(vrp):
+        nota += (f" | VRP truncado por MIROVA en {sensor}: real entre "
+                 f"{int(vrp)} y {int(vrp) + 1} MW")
+    # Mismo criterio de artefacto diurno que las filas con geometría (ver abajo).
+    if 12 <= dt_pasada.hour <= 23 and vrp >= UMBRAL_VRP_DIURNO_SOSPECHOSO:
+        nota += (f" | CANDIDATO A ARTEFACTO: {vrp:.2f} MW en pasada DIURNA "
+                 f"({dt_pasada.hour:02d}h UTC); posible cirrus o reflexion solar")
+    return {
+        'timestamp': int(dt_pasada.timestamp()),
+        'Fecha_Satelite_UTC': dt_pasada.strftime("%Y-%m-%d %H:%M:%S"),
+        'Fecha_Captura_Chile': dt_pasada.astimezone(
+            pytz.timezone('America/Santiago')).strftime("%Y-%m-%d %H:%M:%S"),
+        'Volcan': volcan,
+        'Sensor': sensor,
+        'VRP_MW': vrp,
+        'Distancia_km': '',            # desconocida, NUNCA 0
+        'Tipo_Registro': 'ALERTA_TERMICA_OCR',
+        'Clasificacion Mirova': CLASIFICACION_SIN_GEOMETRIA,
+        'Ruta Foto': RUTA_FOTO_SIN_GEOMETRIA,
+        'Fecha_Proceso_GitHub': ahora_cl,
+        'Ultima_Actualizacion': ahora_cl,
+        'Editado': 'NO',
+        'Color_Punto_Dist': 'sin_punto',
+        'Confianza_Validacion': 'media',
+        'Requiere_Verificacion': True,
+        'Metodo_Validacion': METODO_SIN_GEOMETRIA,
+        'Nota_Validacion': nota,
+        'Version_OCR': VERSION_OCR_SIN_GEOMETRIA,
+        # La geometría de observación sí es de la celda de esta pasada (V30).
+        'Zenith_Sat_deg': '' if zen in (None, '') else str(int(float(zen))),
+        'Azimut_Sat_deg': '' if azi in (None, '') else str(int(float(azi))),
+        # El banner de MIROVA describe la pasada de la cabecera, no esta.
+        'Nivel_Anomalia_MIROVA': '',
+        'Confianza_Geometria': ('alta' if zen not in (None, '') and azi not in (None, '')
+                                else 'parcial' if zen not in (None, '') or azi not in (None, '')
+                                else ''),
+    }
 
 
 # =========================
@@ -460,6 +566,15 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             else:
                 print(f"      📝 Ya estaba anotado en {LOG_RECHAZOS_CABECERA}")
             RECHAZOS_CABECERA_CORRIDA.append((nombre_v, sensor, _fmt_utc(dt_utc), vrp_mw, motivo))
+            # V31.1: si Dist.png es POSTERIOR, el VRP de la celda se guarda igual,
+            # sin distancia ni clase (ver fila_vrp_sin_geometria).
+            fila_sg = fila_vrp_sin_geometria(
+                nombre_v, sensor, dt_utc, vrp_mw, cab_dist,
+                zen=evento.get('zen'), azi=evento.get('azi'), ahora_cl=ahora_cl)
+            if fila_sg:
+                print(f"   💾 V31.1: se guarda el VRP {vrp_mw} MW SIN distancia ni clase "
+                      f"({METODO_SIN_GEOMETRIA})")
+                eventos_nuevos.append(fila_sg)
             continue
 
         if not clasificacion['guardar']:

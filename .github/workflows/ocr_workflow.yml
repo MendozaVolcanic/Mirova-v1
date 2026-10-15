@@ -80,6 +80,15 @@ jobs:
       - name: Ejecutar Scraper OCR
         run: python scraper_ocr.py
 
+      # V31.1: pasa al registro las pasadas que V31 dejo solo en el log de
+      # rechazos (Dist.png POSTERIOR, VRP > 0), con su VRP y SIN distancia.
+      # Idempotente: la primera corrida tras el merge agrega las historicas y
+      # despues 0 (el scraper ya guarda las nuevas). Va en el workflow y no como
+      # datos del PR porque este CSV se reescribe cada hora: un commit de datos
+      # en el PR chocaria con el OCR.
+      - name: Backfill V31.1 (VRP sin geometria propia)
+        run: python backfill_vrp_sin_geometria_v31.py
+
       - name: Reconciliar OCR contra latest.php (auto-corrige mal-ubicaciones)
         run: python reconciliar_latest.py
 
