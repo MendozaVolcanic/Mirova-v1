@@ -99,6 +99,32 @@ jobs:
       - name: Reconciliar OCR contra latest.php (auto-corrige mal-ubicaciones)
         run: python reconciliar_latest.py
 
+      # Distancia aproximada (Distancia_aprox_*): la distancia de cada pasada
+      # VIIRS 375 leida en la serie de tiempo de Dist.png de 1 a 25 dias despues.
+      # Complemento: Distancia_km no se toca. Va DESPUES de reconciliar (usa la
+      # Distancia_km final de la fila) y antes del commit. Solo recalcula las
+      # filas de los ultimos 26 dias y las nunca calculadas (la primera corrida
+      # tras el merge llena la historia). Las PNG se bajan una por una de
+      # mirova-tif-archive por raw (publico, sin credenciales, nunca clone) y la
+      # cache queda entre corridas. Si falla (red), no frena el commit del OCR:
+      # el CSV se escribe de una vez al final, y la proxima corrida lo retoma.
+      # Tiempos medidos (2026-10-16, copia del CSV real, 1.076 filas): historia
+      # entera con cache vacia 31 min; ventana de 26 dias con las PNG en cache
+      # 30 s, y 6 s con los calados guardados. El presupuesto de 15 min hace
+      # que la primera vez la historia se llene en dos o tres corridas (las
+      # filas mas nuevas primero) sin pasarse del timeout.
+      - name: Cache de Dist.png (distancia aproximada)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mirova_dist
+          key: mirova-dist-${{ github.run_id }}
+          restore-keys: mirova-dist-
+
+      - name: Backfill distancia aproximada (serie de tiempo de Dist.png)
+        timeout-minutes: 20
+        continue-on-error: true
+        run: python backfill_distancia_aprox.py --dias 26 --max-minutos 15
+
       - name: Ejecutar Merger Maestro
         run: python merger_maestro.py
 

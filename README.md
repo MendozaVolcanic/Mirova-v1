@@ -179,6 +179,53 @@ Chile con `zoneinfo`; quedan **vacías** las horas ambiguas (en el consolidado, 
 `Fecha_Proceso_UTC` y 11 de `Ultima_Actualizacion_UTC`, todas del 2026-04-04 entre 23:45 y 23:51) y las
 filas de enero de 2026 anteriores a la columna de proceso (104 y 96). No se adivinan.
 
+### **Distancia aproximada leída en la serie de tiempo de `Dist.png` (`Distancia_aprox_*`):**
+Qué pasa en la página de MIROVA: el panel "Last Month" de `Dist.png` no es una foto de una pasada, es una serie
+de tiempo de unos 30 días con un marcador por pasada con anomalía, a la altura de su distancia al cráter. El OCR
+lee solo la estrella, que es la pasada de la cabecera "Last Update"; cuando la imagen ya era de otra pasada, la
+fila queda sin distancia (`ALERTA_SIN_GEOMETRIA_OCR`) o, antes del 2026-06-13, con un 0 fijo. Esa pasada sigue
+dibujada en las imágenes que vienen después, y ahí se lee.
+
+**Es un complemento, no una corrección.** `Distancia_km` no se toca nunca. En las filas sin distancia
+`Distancia_aprox_*` es el dato que falta; en las que tienen distancia del OCR es una segunda lectura. Para el lado
+cráter o lejana, la distancia que midió el OCR acierta: en las 192 pasadas OCR VIIRS 375 desde el 2026-06-13 que
+también están en la tabla de `latest.php`, el OCR acierta el lado en las 192 (su error de distancia en Puyehue-Cordón
+Caulle y Tupungatito existe, pero no cruza el límite). La serie decide 161 de ellas y acierta 158.
+
+| Columna | Qué es |
+|---|---|
+| `Distancia_aprox_km` | Distancia en km, solo cuando la columna de la noche deja un único marcador sin explicar (`unico`); vacía en los demás |
+| `Distancia_aprox_min_km`, `Distancia_aprox_max_km` | Intervalo de lo posible; en `unico`, iguales al valor |
+| `Distancia_aprox_metodo` | `unico`; `ambiguo` (varios marcadores posibles); `solapado` (todos los marcadores los explican otras pasadas de la noche: la distancia es una de esas); `sin_marcador` (columna vacía: **posible a más de 25 km**, nunca "cerca"); `pendiente` (todavía no hay imagen de 1 a 25 días después; se recalcula sola); `calado_debil` (el eje de tiempo no se pudo calar con confianza); `sin_control` (VIIRS 750 y MODIS: sin control propio, no se lee) |
+| `Distancia_aprox_pareos` | Cuántos marcadores de la imagen calzaron con pasadas de la tabla al calar el eje de tiempo |
+| `Distancia_aprox_imagen` | `png_path` de la imagen usada, en `mirova-tif-archive` (trazabilidad) |
+
+Cómo se lee (`dist_serie.py`): la `Dist.png` más reciente de 1 a 25 días después de la pasada (archivo de
+`mirova-tif-archive`, que guarda las imágenes desde el 2026-05-09); el eje de tiempo se cala con las pasadas de la
+tabla (nunca con distancias del OCR), y a la columna de la noche se le descuentan los marcadores que explican las
+otras pasadas de la tabla de esa noche. Si la fila trae una distancia del OCR, su columna tiene un marcador a esa
+cifra y la eliminación se queda con otro, la fila queda `ambiguo` y no "lejos": con ese patrón la serie se equivocó
+de lado en 5 de 9 pasadas de control.
+
+**Desde cuándo vale:** desde el **2026-04-14** en VIIRS 375 (el archivo de imágenes empieza el 05-09 y el panel
+cubre 30 días). Antes, `pendiente`.
+
+**Error esperado, por población** (control: 1.549 pasadas de la tabla VIIRS 375 con VRP > 0, del 2026-04-14 al
+2026-10-11, leídas con este mismo código; `scripts/control_distancia_aprox.py`, `scripts/umbral_pareos.py`):
+- Se decide cerca o lejos en el 80 % (margen de 0,6 km a cada lado del límite del volcán, `dist_serie.decidir`).
+- En las **ALERTA**: 17 de 772 decididas eran cráter y se leyeron lejanas (2,2 %). En el control ninguna ALERTA era
+  lejana, así que "lejana leída como cerca" en una ALERTA **no tiene muestra**.
+- En las **FALSO_POSITIVO**: 21 lejanas leídas como cerca, 18 de ellas a más de 25 km (el panel no las dibuja).
+- Caso `unico`: error mediano 0,07 km, p90 0,31 km. El riesgo no es la precisión, es saber de qué pasada es cada
+  marcador.
+- `calado_debil`: menos de `dist_serie.PAREOS_MINIMOS` (4) pareos. El umbral sale del control, no se eligió; ver el
+  comentario de la constante.
+
+La decisión cerca o lejos **no se escribe** en el CSV (depende del límite de cada volcán): está en
+`dist_serie.decidir`. Lo llena `backfill_distancia_aprox.py` en `ocr_workflow.yml` (filas de los últimos 26 días y
+las nunca calculadas, con presupuesto de tiempo). Estudio y verificador: repo VRP-chile,
+`experiments/_s151_distancia_ocr/`.
+
 ### **Registros por volcán:**
 * `registro_[Volcan].csv`: CSV individual por cada volcán (se actualiza automáticamente)
 
