@@ -54,6 +54,7 @@ from ocr_utils import (
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
 from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
 from horas_utc import ahora_cl_y_utc, convertir_local_cl, COL_PROCESO_UTC, COL_ULTIMA_UTC
+from dist_aprox_columnas import COLUMNAS as COLUMNAS_DIST_APROX, escribir_ocr
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 
@@ -100,12 +101,18 @@ COLUMNAS_OCR = [
     COL_PROCESO_UTC, COL_ULTIMA_UTC,
 ]
 
-# Distancia aproximada leida en la serie de tiempo de Dist.png (backfill_distancia_aprox.py, que corre despues en el
-# mismo workflow). El scraper no las calcula: las conserva al guardar (las filas nuevas van vacias). Sin esto el
-# reindex de abajo las borraba en cada corrida con eventos nuevos.
-COLUMNAS_DIST_APROX = ['Distancia_aprox_km', 'Distancia_aprox_min_km', 'Distancia_aprox_max_km',
-                       'Distancia_aprox_metodo', 'Distancia_aprox_pareos', 'Distancia_aprox_imagen']
-COLUMNAS_GUARDADO = COLUMNAS_OCR + COLUMNAS_DIST_APROX
+
+
+def guardar_ocr(df_ocr, eventos_nuevos, ruta):
+    """Agrega los eventos nuevos y reescribe registro_vrp_ocr.csv, ordenado por timestamp descendente.
+    Conserva las columnas Distancia_aprox_* (las llena backfill_distancia_aprox.py, que corre despues en el
+    mismo workflow; las filas nuevas van vacias). Sin eso el reindex las borraba en cada corrida con eventos
+    nuevos y el backfill tenia que rehacer la historia. escribir_ocr deja los pareos como entero."""
+    df = pd.concat([df_ocr, pd.DataFrame(eventos_nuevos)], ignore_index=True)
+    # reindex y no [COLUMNAS_OCR]: tolera un CSV anterior a alguna columna.
+    df = df.reindex(columns=COLUMNAS_OCR + COLUMNAS_DIST_APROX).sort_values('timestamp', ascending=False)
+    escribir_ocr(df, ruta)
+    return df
 
 # =========================
 # DETECCIÓN DE FORMATO ERRÁTICO DE MIROVA (#1)
@@ -775,13 +782,8 @@ def procesar():
         df_nuevos = pd.DataFrame(todos_eventos_nuevos)
         print(f"   DataFrame creado: {len(df_nuevos)} filas")
         
-        df_ocr_final = pd.concat([df_ocr, df_nuevos], ignore_index=True)
+        df_ocr_final = guardar_ocr(df_ocr, todos_eventos_nuevos, DB_OCR)
         print(f"   CSV final: {len(df_ocr_final)} filas totales")
-        
-        # reindex y no [COLUMNAS_OCR]: tolera un CSV anterior a alguna columna.
-        df_ocr_final = df_ocr_final.reindex(columns=COLUMNAS_GUARDADO).sort_values('timestamp', ascending=False)
-        
-        df_ocr_final.to_csv(DB_OCR, index=False)
         print(f"   ✅ Guardado en: {DB_OCR}")
         
         print(f"\n✅ Se agregaron {len(todos_eventos_nuevos)} eventos nuevos")

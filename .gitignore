@@ -13,3 +13,6 @@ monitoreo_satelital/ocr_temp/
 
 # Backups manuales sueltos (mantener fuera del historial)
 monitoreo_satelital/*al [0-9]*.csv
+
+# Escrituras atomicas a medio terminar (backfill_distancia_aprox.py y otros)
+*.tmp

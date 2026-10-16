@@ -55,7 +55,7 @@ def main(cons, muestra, salida):
         if img is None:
             continue
         x, cb = lectura_y_calado(img, r.vol)
-        base_fila = dict(vol=r.vol, t=r.t, tipo=r.Tipo_Registro, dist=r.Distancia_km,
+        base_fila = dict(vol=r.vol, t=r.t, tipo=r.Tipo_Registro, dist=r.Distancia_km, md5=img.md5,
                          real="cerca" if r.Distancia_km <= D.limite_km(r.vol) else "lejos",
                          imagen=os.path.basename(img.png_path),
                          dias_img=(pd.Timestamp(img.last_modified_utc).tz_convert(None) - r.t).total_seconds() / 86400)

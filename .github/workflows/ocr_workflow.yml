@@ -99,32 +99,6 @@ jobs:
       - name: Reconciliar OCR contra latest.php (auto-corrige mal-ubicaciones)
         run: python reconciliar_latest.py
 
-      # Distancia aproximada (Distancia_aprox_*): la distancia de cada pasada
-      # VIIRS 375 leida en la serie de tiempo de Dist.png de 1 a 25 dias despues.
-      # Complemento: Distancia_km no se toca. Va DESPUES de reconciliar (usa la
-      # Distancia_km final de la fila) y antes del commit. Solo recalcula las
-      # filas de los ultimos 26 dias y las nunca calculadas (la primera corrida
-      # tras el merge llena la historia). Las PNG se bajan una por una de
-      # mirova-tif-archive por raw (publico, sin credenciales, nunca clone) y la
-      # cache queda entre corridas. Si falla (red), no frena el commit del OCR:
-      # el CSV se escribe de una vez al final, y la proxima corrida lo retoma.
-      # Tiempos medidos (2026-10-16, copia del CSV real, 1.076 filas): historia
-      # entera con cache vacia 31 min; ventana de 26 dias con las PNG en cache
-      # 30 s, y 6 s con los calados guardados. El presupuesto de 15 min hace
-      # que la primera vez la historia se llene en dos o tres corridas (las
-      # filas mas nuevas primero) sin pasarse del timeout.
-      - name: Cache de Dist.png (distancia aproximada)
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/mirova_dist
-          key: mirova-dist-${{ github.run_id }}
-          restore-keys: mirova-dist-
-
-      - name: Backfill distancia aproximada (serie de tiempo de Dist.png)
-        timeout-minutes: 20
-        continue-on-error: true
-        run: python backfill_distancia_aprox.py --dias 26 --max-minutos 15
-
       - name: Ejecutar Merger Maestro
         run: python merger_maestro.py
 
@@ -182,3 +156,56 @@ jobs:
           else
             echo "ℹ️ No hay eventos nuevos para subir."
           fi
+
+      # ========================================
+      # Distancia aproximada (Distancia_aprox_*), DESPUES del commit del OCR
+      # ========================================
+      # La distancia de cada pasada VIIRS 375 leida en la serie de tiempo de
+      # Dist.png de 1 a 25 dias despues (backfill_distancia_aprox.py). Es un
+      # complemento: Distancia_km no se toca. Va despues del push del OCR para
+      # que el OCR nunca dependa de el: si esto falla o lo cancela la corrida
+      # siguiente, el OCR ya esta arriba. Mismo workflow (mismo grupo de
+      # concurrencia) para que registro_vrp_ocr.csv siga teniendo un solo
+      # escritor. Cada intento parte del remoto (reset a origin/main) y recalcula,
+      # asi que un push rechazado nunca mezcla versiones del CSV.
+      # Presupuesto 5 min: los disparos llegan cada 30 min y el OCR toma 2 a 4.
+      # Medido (2026-10-16, copia del CSV real): ventana de 26 dias 6 a 30 s.
+      # La historia se calcula una vez con distancia_aprox_historia.yml (deja los
+      # calados en la cache); con eso esta corrida la escribe dentro del presupuesto.
+      # Errores por fila (red, PNG, volcan nuevo) quedan como error_lectura y salen
+      # como ::warning:: en el resumen; un error de toda la corrida deja el paso en rojo.
+      - name: Restaurar cache de Dist.png y calados
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/mirova_dist
+          key: mirova-dist-${{ github.run_id }}
+          restore-keys: mirova-dist-
+
+      - name: Distancia aproximada (serie de tiempo de Dist.png)
+        timeout-minutes: 10
+        run: |
+          for intento in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+            python backfill_distancia_aprox.py --dias 26 --max-minutos 5
+            git add monitoreo_satelital/registro_vrp_ocr.csv
+            if git diff --quiet --staged; then
+              echo "Sin cambios en Distancia_aprox_*"
+              exit 0
+            fi
+            git commit -m "Distancia aproximada: Distancia_aprox_* desde la serie de Dist.png"
+            if git push origin main; then
+              echo "Push de la distancia aproximada en el intento $intento"
+              exit 0
+            fi
+            echo "Push rechazado (otro workflow empujo primero): reintento sobre el remoto"
+            sleep $((intento * 3))
+          done
+          echo "::warning title=Distancia aproximada::push rechazado 5 veces; lo retoma la proxima corrida"
+
+      - name: Guardar cache de Dist.png y calados
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/mirova_dist
+          key: mirova-dist-${{ github.run_id }}

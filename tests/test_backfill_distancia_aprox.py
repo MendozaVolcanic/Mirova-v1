@@ -151,17 +151,6 @@ def test_ventana_solo_recalcula_lo_reciente_y_lo_nunca_calculado(entorno):
     assert _leer(entorno["ocr"])[1]["Distancia_aprox_metodo"] == "marca_de_prueba"
 
 
-def test_el_scraper_ocr_no_borra_las_columnas_al_guardar():
-    """scraper_ocr.py reescribe el CSV con reindex de sus columnas: sin esto,
-    cada corrida con eventos nuevos borraba las seis columnas y el backfill
-    tenía que recalcular la historia entera. Las filas nuevas las trae vacías y
-    el backfill (que corre después en el mismo workflow) las llena."""
-    import backfill_distancia_aprox as B
-    import scraper_ocr
-    assert scraper_ocr.COLUMNAS_GUARDADO[-len(B.COLUMNAS):] == B.COLUMNAS
-    assert scraper_ocr.COLUMNAS_GUARDADO[:len(scraper_ocr.COLUMNAS_OCR)] == scraper_ocr.COLUMNAS_OCR
-
-
 def test_calado_guardado_no_se_recalcula_y_cambia_si_cambia_la_tabla(entorno, tmp_path, monkeypatch):
     """El calado es lo caro (unos segundos por imagen) y el cron corre cada
     hora: se guarda por md5 de la imagen y por las pasadas de la tabla que caen
@@ -202,3 +191,190 @@ def test_presupuesto_de_tiempo_guarda_lo_hecho_y_la_proxima_sigue(entorno):
     assert all(f["Distancia_aprox_metodo"] == "" for f in filas)
     _correr(entorno, dias=1, ahora=pd.Timestamp("2026-10-16 12:00:00"))
     assert all(f["Distancia_aprox_metodo"] != "" for f in _leer(entorno["ocr"]))
+
+
+# ---------------------------------------------------------------- arreglos del verificador (PR #25)
+def test_el_scraper_ocr_conserva_las_columnas_al_guardar(tmp_path):
+    """scraper_ocr.py reescribe el CSV con pandas: si vuelve a reindexar solo con
+    sus columnas, cada corrida con eventos nuevos borra las seis y el backfill
+    tiene que rehacer la historia. Se prueba el guardado de verdad, no la lista."""
+    import scraper_ocr
+    import dist_aprox_columnas as C
+    viejo = {c: "" for c in scraper_ocr.COLUMNAS_OCR}
+    viejo.update({"timestamp": 1, "Volcan": "Isluga", "Sensor": "VIIRS375", "Distancia_aprox_km": 0.54,
+                  "Distancia_aprox_min_km": 0.54, "Distancia_aprox_max_km": 0.54, "Distancia_aprox_metodo": "unico",
+                  "Distancia_aprox_pareos": 39, "Distancia_aprox_imagen": "data/png/Isluga/x.png"})
+    nuevo = {c: "" for c in scraper_ocr.COLUMNAS_OCR}
+    nuevo.update({"timestamp": 2, "Volcan": "Isluga", "Sensor": "VIIRS375"})
+    ruta = tmp_path / "ocr.csv"
+    scraper_ocr.guardar_ocr(pd.DataFrame([viejo]), [nuevo], str(ruta))
+    f = _leer(ruta)
+    assert list(f[0].keys())[-len(C.COLUMNAS):] == C.COLUMNAS
+    vieja = next(x for x in f if x["timestamp"] == "1")
+    assert (vieja["Distancia_aprox_metodo"], vieja["Distancia_aprox_pareos"], vieja["Distancia_aprox_km"]) \
+        == ("unico", "39", "0.54")
+    assert next(x for x in f if x["timestamp"] == "2")["Distancia_aprox_metodo"] == ""
+
+
+def test_ida_y_vuelta_por_pandas_no_cambia_las_columnas(entorno):
+    """scraper_ocr.py y reconciliar_latest.py reescriben el CSV con pandas: los
+    pareos no pueden volver como 11.0 ni los km cambiar de forma (24.80 a 24.8)."""
+    import dist_aprox_columnas as C
+    _correr(entorno)
+    antes = _leer(entorno["ocr"])
+    C.escribir_ocr(pd.read_csv(entorno["ocr"]), entorno["ocr"])
+    despues = _leer(entorno["ocr"])
+    assert [[f[c] for c in C.COLUMNAS] for f in despues] == [[f[c] for c in C.COLUMNAS] for f in antes]
+    assert not any(f["Distancia_aprox_pareos"].endswith(".0") for f in despues)
+
+
+def _sintetico(monkeypatch, tmp_path, filas_ocr, tabla, marcadores_km_t):
+    """Una imagen falsa con marcadores dados (km, hora): sin red ni PNG, para
+    probar la lógica de calcular() fila por fila."""
+    import dist_serie as D
+    L = pd.Timestamp("2026-10-01")
+    lectura = {"geo": {"ticks": [0.0], "ppd": 1.0},
+               "marcadores": [{"tipo": "circulo", "x": (pd.Timestamp(t) - L).total_seconds() / 86400, "y": 0, "km": km}
+                              for km, t in marcadores_km_t],
+               "estrella": None}
+    monkeypatch.setattr(D, "leer", lambda ruta: lectura)
+    monkeypatch.setattr(D, "calibrar", lambda x, lm, ref: {"pareos": 30, "L": L, "desfase": 0.0})
+    ocr = tmp_path / "ocr.csv"
+    with open(ocr, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(CABECERA)
+        w.writerows(filas_ocr)
+    cons = tmp_path / "cons.csv"
+    pd.DataFrame(tabla, columns=["Fecha_Satelite_UTC", "Volcan", "Sensor", "VRP_MW", "Distancia_km", "Tipo_Registro"]
+                 ).to_csv(cons, index=False)
+    idx = pd.DataFrame([dict(volcano="Lastarria", sensor="VIIRS375", kind="Dist",
+                             last_modified_utc="2026-10-12T05:00:00+00:00", md5="m1",
+                             png_path="data/png/Lastarria/x.png")])
+    return dict(ocr=str(ocr), cons=str(cons), indice=idx, obtener=lambda png_path, md5: "no_se_lee")
+
+
+def test_cifra_ocr_mas_lejano_queda_ambiguo_en_el_csv(monkeypatch, tmp_path):
+    """La llamada a con_cifra_ocr en el backfill: la tabla explica el marcador a
+    0,95 km con otra pasada de la noche, la eliminación se queda con el de 16,5,
+    pero la fila trae 0,95 medido por el OCR: queda ambiguo, no lejos."""
+    e = _sintetico(monkeypatch, tmp_path,
+                   [["1", "2026-10-05 05:30:00", "Lastarria", "VIIRS375", "1.0", "0.95", "ALERTA_TERMICA_OCR", "31"]],
+                   [("2026-10-05 06:10:00", "Lastarria", "VIIRS375", 0.8, 0.95, "ALERTA_TERMICA")],
+                   [(0.95, "2026-10-05 06:10"), (16.5, "2026-10-05 05:30")])
+    _correr(e)
+    f = _leer(e["ocr"])[0]
+    assert (f["Distancia_aprox_metodo"], f["Distancia_aprox_km"], f["Distancia_aprox_min_km"],
+            f["Distancia_aprox_max_km"]) == ("ambiguo", "", "0.95", "16.5")
+
+
+def test_marcador_reclamado_por_dos_filas_no_es_unico(monkeypatch, tmp_path):
+    """Dos filas OCR de la misma noche se quedan con el mismo marcador (las
+    vecinas solo OCR no se descuentan). Ninguna puede ser unico: el marcador es
+    de una sola de ellas, y la otra puede estar tapada o a más de 25 km. Las dos
+    quedan ambiguo con el intervalo de su columna (Lastarria 2026-06-28, verificador)."""
+    e = _sintetico(monkeypatch, tmp_path,
+                   [["1", "2026-10-05 05:36:00", "Lastarria", "VIIRS375", "1.0", "", "ALERTA_SIN_GEOMETRIA_OCR", "31"],
+                    ["2", "2026-10-05 05:54:00", "Lastarria", "VIIRS375", "1.0", "", "ALERTA_SIN_GEOMETRIA_OCR", "31"]],
+                   [("2026-10-05 06:20:00", "Lastarria", "VIIRS375", 0.8, 2.70, "ALERTA_TERMICA")],
+                   [(2.70, "2026-10-05 06:20"), (15.56, "2026-10-05 05:45")])
+    _correr(e)
+    for f in _leer(e["ocr"]):
+        assert (f["Distancia_aprox_metodo"], f["Distancia_aprox_km"], f["Distancia_aprox_min_km"],
+                f["Distancia_aprox_max_km"]) == ("ambiguo", "", "2.7", "15.56")
+
+
+def test_error_por_fila_no_aborta_y_avisa(monkeypatch, tmp_path, capsys):
+    """Un volcán desconocido, una fecha ilegible o una PNG que no baja quedan
+    como error_lectura en su fila; las demás se calculan, el CSV se escribe y
+    sale un ::warning:: con el conteo (el paso no queda verde en silencio)."""
+    filas = [["1", "2026-10-05 05:30:00", "Lastarria", "VIIRS375", "1.0", "", "ALERTA_SIN_GEOMETRIA_OCR", "31"],
+             ["2", "2026-10-05 05:30:00", "Volcan Nuevo", "VIIRS375", "1.0", "", "ALERTA_SIN_GEOMETRIA_OCR", "31"],
+             ["3", "basura", "Lastarria", "VIIRS375", "1.0", "", "ALERTA_SIN_GEOMETRIA_OCR", "31"],
+             ["4", "2026-10-06 05:30:00", "Lastarria", "VIIRS375", "1.0", "", "ALERTA_SIN_GEOMETRIA_OCR", "31"]]
+    e = _sintetico(monkeypatch, tmp_path, filas, [], [(1.0, "2026-10-05 05:30")])
+    e["indice"] = pd.concat([e["indice"], e["indice"].assign(md5="m2", last_modified_utc="2026-10-30T12:00:00+00:00")])
+
+    def obtener(png_path, md5):
+        if md5 == "m2":
+            raise OSError("HTTP Error 404")
+        return "no_se_lee"
+    e["obtener"] = obtener
+    _correr(e)
+    f = _leer(e["ocr"])
+    assert f[0]["Distancia_aprox_metodo"] == "unico"
+    assert [x["Distancia_aprox_metodo"] for x in f[1:]] == ["error_lectura"] * 3
+    assert "::warning" in capsys.readouterr().out
+
+
+def test_error_lectura_se_reintenta_aunque_sea_vieja(monkeypatch, tmp_path):
+    """Un error transitorio no puede quedar pegado: fuera de la ventana del cron
+    la fila con error_lectura se vuelve a calcular."""
+    e = _sintetico(monkeypatch, tmp_path,
+                   [["1", "2026-10-05 05:30:00", "Lastarria", "VIIRS375", "1.0", "", "ALERTA_SIN_GEOMETRIA_OCR", "31"]],
+                   [], [(1.0, "2026-10-05 05:30")])
+    falla = {"si": True}
+
+    def obtener(png_path, md5):
+        if falla["si"]:
+            raise OSError("HTTP Error 429")
+        return "no_se_lee"
+    e["obtener"] = obtener
+    _correr(e)
+    assert _leer(e["ocr"])[0]["Distancia_aprox_metodo"] == "error_lectura"
+    falla["si"] = False
+    _correr(e, dias=1, ahora=pd.Timestamp("2026-12-01"))
+    assert _leer(e["ocr"])[0]["Distancia_aprox_metodo"] == "unico"
+
+
+def test_429_reintenta_con_espera_y_404_no(monkeypatch):
+    import urllib.error
+    import backfill_distancia_aprox as B
+    esperas, llamadas = [], []
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"ok"
+
+    def fake(url, timeout=60):
+        llamadas.append(url)
+        if len(llamadas) <= 2:
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", {"Retry-After": "3"}, None)
+        return Resp()
+    monkeypatch.setattr(B.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(B.time, "sleep", esperas.append)
+    assert B._bajar("u") == b"ok"
+    assert esperas == [3, 3]
+    llamadas.clear()
+
+    def no_existe(url, timeout=60):
+        llamadas.append(url)
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+    monkeypatch.setattr(B.urllib.request, "urlopen", no_existe)
+    with pytest.raises(urllib.error.HTTPError):
+        B._bajar("u")
+    assert len(llamadas) == 1
+
+
+def test_poda_de_la_cache_de_imagenes(tmp_path):
+    """La caché de PNG no crece sin fin: se borra lo que no se usa hace más de
+    30 días. Una PNG usada se toca al usarla (obtener_png)."""
+    import time as _t
+    import backfill_distancia_aprox as B
+    vieja, nueva = tmp_path / "a.png", tmp_path / "b.png"
+    vieja.write_bytes(b"x")
+    nueva.write_bytes(b"y")
+    hace = _t.time() - 31 * 86400
+    os.utime(vieja, (hace, hace))
+    assert B.podar_cache(str(tmp_path), dias=30) == 1
+    assert not vieja.exists() and nueva.exists()
+
+
+def test_tmp_en_gitignore():
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    assert "*.tmp" in open(os.path.join(raiz, ".gitignore"), encoding="utf-8").read().split()

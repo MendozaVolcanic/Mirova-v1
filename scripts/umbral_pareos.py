@@ -2,16 +2,18 @@
 """Umbral de calado debil (dist_serie.PAREOS_MINIMOS), medido contra el control del lector portado.
 
 Por que: el eje de tiempo de Dist.png no trae fechas y se cala contando cuantos marcadores calzan con pasadas de la
-tabla ("pareos"). Con pocos pareos el calado puede quedar corrido y la columna de la noche ser la de otra noche. El
-umbral no se elige: es el menor numero de pareos desde el que el error de la decision cerca o lejos no supera el
-error global del control.
+tabla ("pareos"). Con pocos pareos el calado puede quedar corrido y la columna de la noche ser la de otra noche.
 
-Lee la salida de scripts/control_distancia_aprox.py (una fila por pasada de control: pareos, desfase, dec, real) y
-para cada umbral de 4 a 20 imprime el error de la decision y la fraccion decidida de las pasadas que lo cumplen, y el
-error de las que quedarian fuera. Ademas compara los calados en el borde de la busqueda (desfase >= +0,76 d) con el
-resto.
+La regla (no se elige el numero): el umbral es el menor u cuyo error no supera el error global del control, donde
+"el error de u" es el de los calados que ese umbral admite en el margen, los de u a u+3 pareos (banda de 4, la
+misma de las tablas del verificador: "4 a 7", "8 a 11"). La version anterior media el error ACUMULADO de todo lo
+que pasa el umbral, que esta dominado por los calados fuertes y es casi igual al global por construccion: aceptaba
+siempre el piso de la busqueda (verificador del PR #25, §3). La busqueda parte en 1, no en 4.
 
-Uso: python scripts/umbral_pareos.py tests/fixtures/dist/control_port.csv"""
+Entrada: una o mas salidas de scripts/control_distancia_aprox.py (columnas vol, t, md5, pareos, desfase, dec, real).
+Una misma pasada leida en la misma imagen en dos controles cuenta una vez.
+
+Uso: python scripts/umbral_pareos.py tests/fixtures/dist/control_juntas.csv [otro_control.csv ...]"""
 import sys
 
 import pandas as pd
@@ -19,8 +21,15 @@ import pandas as pd
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-ERROR_GLOBAL_ESTUDIO = 0.045      # INFORME §4 y VERIFICADOR §1 (56 de 1.246)
+ANCHO = 4                         # banda de pareos que admite el umbral en el margen
 BORDE = 0.76                      # la busqueda del desfase llega a +0,78 d: +0,76 y +0,78 son el borde
+
+
+def juntar(rutas):
+    X = pd.concat([pd.read_csv(r) for r in rutas], ignore_index=True)
+    if "md5" in X.columns:
+        X = X.drop_duplicates(["vol", "t", "md5"])
+    return X
 
 
 def tasas(x):
@@ -29,37 +38,39 @@ def tasas(x):
     return len(x), len(d), mal, (mal / len(d) if len(d) else float("nan"))
 
 
-def umbral(X, techo):
-    """Menor umbral u (4 a 20) cuyo error entre las pasadas con pareos >= u no supera techo. None si ninguno."""
-    for u in range(4, 21):
-        n, nd, mal, e = tasas(X[X.pareos >= u])
+def banda(X, u, ancho=ANCHO):
+    return X[(X.pareos >= u) & (X.pareos < u + ancho)]
+
+
+def umbral(X, ancho=ANCHO, hasta=20):
+    """Menor u (1 a hasta) cuya banda [u, u+ancho) yerra no mas que el global de X. None si ninguno."""
+    techo = tasas(X)[3]
+    for u in range(1, hasta + 1):
+        _, nd, _, e = tasas(banda(X, u, ancho))
         if nd and e <= techo:
             return u
     return None
 
 
-def main(ruta):
-    X = pd.read_csv(ruta)
+def main(rutas):
+    X = juntar(rutas)
     n, nd, mal, e = tasas(X)
-    print(f"control: {n} pasadas, decididas {nd} ({100 * nd / n:.1f} %), erradas {mal} ({100 * e:.1f} %)")
-    print(f"pareos por imagen usada: min {X.pareos.min()}, p5 {X.pareos.quantile(.05):.0f}, mediana {X.pareos.median():.0f}")
-    print("\numbral | pasadas >= u | decididas (frac de todas) | erradas (error) || quedan fuera: decididas, erradas")
-    for u in range(4, 21):
-        a, b = X[X.pareos >= u], X[X.pareos < u]
-        n1, nd1, m1, e1 = tasas(a)
-        n2, nd2, m2, e2 = tasas(b)
-        print(f"  {u:3d}  | {n1:5d} | {nd1:5d} ({100 * nd1 / n:5.1f} %) | {m1:3d} ({100 * e1:4.1f} %) || {nd2:4d}, {m2:3d}"
-              + (f" ({100 * e2:.1f} %)" if nd2 else ""))
-    techo = min(e, ERROR_GLOBAL_ESTUDIO)
-    print(f"\ntecho de error: min(global de este control {100 * e:.1f} %, global del estudio 4,5 %) = {100 * techo:.1f} %")
-    print(f"PAREOS_MINIMOS = {umbral(X, techo)}")
-    b = X[X.desfase >= BORDE]
-    r = X[X.desfase < BORDE]
-    for nombre, x in (("borde (desfase >= +0,76 d)", b), ("resto", r)):
+    print(f"control: {n} pasadas, decididas {nd} ({100 * nd / n:.1f} %), erradas {mal} ({100 * e:.2f} %)")
+    if "muestra" in X.columns:
+        for m, g in X.groupby("muestra"):
+            n_, nd_, m_, e_ = tasas(g)
+            print(f"   muestra {m}: {n_} pasadas, {nd_} decididas, {m_} erradas ({100 * e_:.1f} %)")
+    print(f"\n u | banda [u, u+{ANCHO}): decididas, erradas (error) | quedan fuera (pareos < u): decididas, erradas")
+    for u in range(1, 21):
+        _, nb, mb, eb = tasas(banda(X, u))
+        _, nf, mf, _ = tasas(X[X.pareos < u])
+        print(f"{u:2d} | {nb:4d} {mb:3d} ({100 * eb:4.1f} %) | {nf:4d} {mf:3d}")
+    print(f"\nPAREOS_MINIMOS = {umbral(X)}  (banda de {ANCHO}; con banda 2, 3, 5 y 6: "
+          + ", ".join(str(umbral(X, a)) for a in (2, 3, 5, 6)) + ")")
+    for nombre, x in (("borde (desfase >= +0,76 d)", X[X.desfase >= BORDE]), ("resto", X[X.desfase < BORDE])):
         n_, nd_, m_, e_ = tasas(x)
-        print(f"{nombre}: imagenes {x.imagen.nunique()}, pasadas {n_}, decididas {nd_}, erradas {m_}"
-              + (f" ({100 * e_:.1f} %)" if nd_ else "") + f"; pareos mediana {x.pareos.median() if len(x) else float('nan')}")
+        print(f"{nombre}: pasadas {n_}, decididas {nd_}, erradas {m_}" + (f" ({100 * e_:.1f} %)" if nd_ else ""))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(sys.argv[1:])

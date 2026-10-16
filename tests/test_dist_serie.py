@@ -295,17 +295,30 @@ def test_cifra_ocr_sin_marcador_o_ya_elegida_no_cambia_nada():
 
 # ---------------------------------------------------------------- umbral de calado débil (tarea 5)
 def test_umbral_de_pareos_sale_del_control_portado():
-    """PAREOS_MINIMOS no se elige: es el que da scripts/umbral_pareos.py sobre el
-    control corrido con este mismo lector (scripts/control_distancia_aprox.py,
-    salida en tests/fixtures/dist/control_port.csv). Si el lector o el calado
-    cambian, hay que volver a correr el control y este test lo exige."""
+    """PAREOS_MINIMOS no se elige: es el que da scripts/umbral_pareos.py sobre los
+    dos controles corridos con este mismo lector (tests/fixtures/dist/control_juntas.csv).
+    Si el lector, el calado o la regla cambian, hay que volver a correr el control."""
     import importlib.util
-    import pandas as pd
     import dist_serie as D
     ruta = os.path.join(os.path.dirname(FIXTURES), "..", "scripts", "umbral_pareos.py")
     spec = importlib.util.spec_from_file_location("umbral_pareos", ruta)
     U = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(U)
-    X = pd.read_csv(os.path.join(FIXTURES, "dist", "control_port.csv"))
-    _, _, _, error_global = U.tasas(X)
-    assert U.umbral(X, min(error_global, U.ERROR_GLOBAL_ESTUDIO)) == D.PAREOS_MINIMOS
+    X = U.juntar([os.path.join(FIXTURES, "dist", "control_juntas.csv")])
+    assert len(X) == 2919
+    assert U.umbral(X) == D.PAREOS_MINIMOS
+
+
+def test_umbral_no_acepta_el_piso_por_construccion():
+    """La regla mira la banda marginal, no el acumulado: con calados débiles que
+    yerran más que el global, el umbral sube aunque el acumulado quede bajo el global."""
+    import importlib.util
+    import pandas as pd
+    ruta = os.path.join(os.path.dirname(FIXTURES), "..", "scripts", "umbral_pareos.py")
+    spec = importlib.util.spec_from_file_location("umbral_pareos", ruta)
+    U = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(U)
+    filas = [dict(pareos=p, dec="cerca", real="lejos" if (p < 6 and i == 0) else "cerca")
+             for p in range(1, 31) for i in range(10)]
+    X = pd.DataFrame(filas)
+    assert U.umbral(X) == 6

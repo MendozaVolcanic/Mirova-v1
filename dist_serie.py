@@ -186,9 +186,20 @@ def tabla(df, sensor):
     d = d[(d.Sensor == sensor) & (pd.to_numeric(d.VRP_MW, errors="coerce") > 0)
           & pd.to_numeric(d.Distancia_km, errors="coerce").notna()].copy()
     d["Distancia_km"] = pd.to_numeric(d.Distancia_km)
-    d["t"] = pd.to_datetime(d.Fecha_Satelite_UTC)
-    d["vol"] = d.Volcan.map(id_mirova)
-    return d.sort_values(["vol", "t"])
+    d["t"] = pd.to_datetime(d.Fecha_Satelite_UTC, errors="coerce")
+    d["vol"] = d.Volcan.map(_id_mirova_o_none)
+    malas = d.t.isna() | d.vol.isna()
+    if malas.any():
+        # una fila de la tabla con volcan desconocido o fecha ilegible no puede tumbar el calado de los demas
+        print(f"aviso: {int(malas.sum())} filas de la tabla sin volcan conocido o sin fecha legible: se ignoran")
+    return d[~malas].sort_values(["vol", "t"])
+
+
+def _id_mirova_o_none(volcan):
+    try:
+        return id_mirova(volcan)
+    except KeyError:
+        return None
 
 
 def id_mirova(volcan):
@@ -239,23 +250,31 @@ def calibrar(lectura, lm, conocidas):
 
 # ---------------------------------------------------------------- umbral de calado debil (cambio 3)
 # Con pocos pareos el eje de tiempo puede quedar corrido y la columna de la noche ser otra. PAREOS_MINIMOS NO se eligio:
-# es el menor umbral (de 4 a 20) cuyo error de decision cerca/lejos, entre las pasadas que lo cumplen, no supera el error
-# global del control. Control con ESTE lector y los cambios 1 y 2 del verificador (scripts/control_distancia_aprox.py
-# sobre las 429 Dist.png de la muestra del estudio, 2026-04-14 a 2026-10-11; salida en
-# tests/fixtures/dist/control_port.csv), tabla de scripts/umbral_pareos.py (2026-10-16):
-#   control: 1549 pasadas, decididas 1240 (80.1 %), erradas 38 (3.1 %)
-#   umbral | decididas | erradas (error) || quedan fuera: decididas, erradas
-#      4   |   1224    |  37 (3.0 %)     ||   16,  1        <- PAREOS_MINIMOS
-#      8   |   1134    |  36 (3.2 %)     ||  106,  2
-#     12   |   1070    |  36 (3.4 %)     ||  170,  2
-#     20   |    894    |  35 (3.9 %)     ||  346,  3
-# Lectura: el error NO sube con pocos pareos (por pareos exactos: 0 -> 1 de 1 errada, 1 a 3 -> 0 de 15, 4 a 7 -> 1 de
-# 90); se concentra en las imagenes con 20 a 40 pareos, volcanes con muchas pasadas por noche, donde el riesgo es de
-# atribucion. El umbral cae en el piso de la busqueda y deja fuera, sobre todo, el calado nulo (0 pareos), cuya unica
-# decision fue errada (Villarrica 2026-06-01 17:30, a 29 km, leida en 0,95). Calados en el borde de la busqueda
-# (desfase >= +0,76 d): 4 imagenes, 9 decisiones, 1 errada, la misma de 0 pareos; con el umbral, 8 de 8 correctas
-# (contra 3,0 % del resto; Fisher p = 0,25 con la errada incluida). No se justifica tratar el borde aparte.
-PAREOS_MINIMOS = 4
+# es el menor umbral u cuya banda marginal (calados de u a u+3 pareos, los mas debiles que admite) yerra no mas que el
+# error global del control. Dos controles con este lector y los cambios 1 y 2 del verificador, sobre muestras de
+# imagenes casi disjuntas (17 en comun): el del PR (331 imagenes de la muestra del estudio) y el del verificador limpio
+# del PR #25 (400 imagenes de la cache del backfill). Juntos en tests/fixtures/dist/control_juntas.csv (una pasada en
+# la misma imagen cuenta una vez). scripts/umbral_pareos.py, 2026-10-16:
+#   control: 2919 pasadas, decididas 2362, erradas 80 (3,39 %)   [PR 38 de 1240 (3,1 %); verificador 42 de 1122 (3,7 %)]
+#    u | banda [u, u+4): decididas, erradas (error) | quedan fuera (pareos < u): decididas, erradas
+#    1 |   47   2 (4,3 %) |    2   2
+#    2 |   84   4 (4,8 %) |    4   2
+#    3 |  123   5 (4,1 %) |    9   2
+#    4 |  148   6 (4,1 %) |   26   2
+#    5 |  133   4 (3,0 %) |   49   4      <- PAREOS_MINIMOS
+#    6 |  106   2 (1,9 %) |   88   6
+#    8 |  112   2 (1,8 %) |  174   8
+#   12 |  140   2 (1,4 %) |  286  10
+#   20 |  173   4 (2,3 %) |  646  15
+# Lectura: los calados de 1 a 7 pareos yerran algo mas que el global (4,1 a 4,8 %); desde 5 la banda cae bajo el
+# global y ya no vuelve a superarlo hasta 20 (el error que queda esta en las imagenes de 20 a 40 pareos, volcanes con
+# muchas pasadas por noche: es de atribucion, no de calado). El valor depende de la banda y descansa en pocos errores
+# (6 de 148 en la de 4): con banda de 5 o 6 tambien da 5, con 2 o 3 da 1. La version anterior (4) medía el error
+# acumulado de lo admitido, que por construccion acepta el piso de la busqueda (verificador del PR #25, §3).
+# Con el umbral: 76 erradas de 2313 decididas (3,3 %); en ALERTA, 37 de 1493 crater leidas lejanas (2,5 %), ninguna
+# ALERTA lejana en el control. Calados en el borde de la busqueda (desfase >= +0,76 d): 6 de 140 errados (4,3 %)
+# contra 3,3 % del resto, Fisher p = 0,47; con el umbral, 4 de 138. No se justifica tratar el borde aparte.
+PAREOS_MINIMOS = 5
 
 
 # ---------------------------------------------------------------- eleccion de la imagen
@@ -313,14 +332,17 @@ def eliminar(t, ms, otras):
         i = int(np.argmin(dk))
         if dk[i] <= TOL_KM:
             restantes.pop(i)
+    kms = [m["km"] for m in col]
+    extra = {"n_col": len(col), "col_kmin": min(kms), "col_kmax": max(kms)}
     if len(restantes) == 1:
         km = restantes[0]["km"]
-        return {"clase": "unico", "km": km, "kmin": km, "kmax": km, "n_col": len(col)}
+        # el marcador elegido, para detectar si otra fila de la misma noche reclama el mismo (backfill)
+        return {"clase": "unico", "km": km, "kmin": km, "kmax": km,
+                "marcador": (round(float(restantes[0]["x"]), 3), round(float(restantes[0]["km"]), 3)), **extra}
     if not restantes:
-        kms = [m["km"] for m in col]
-        return {"clase": "solapado", "km": None, "kmin": min(kms), "kmax": max(kms), "n_col": len(col)}
+        return {"clase": "solapado", "km": None, "kmin": min(kms), "kmax": max(kms), **extra}
     kr = [m["km"] for m in restantes]
-    return {"clase": "ambiguo", "km": None, "kmin": min(kr), "kmax": max(kr), "n_col": len(col)}
+    return {"clase": "ambiguo", "km": None, "kmin": min(kr), "kmax": max(kr), **extra}
 
 
 # ---------------------------------------------------------------- decision cerca o lejos
