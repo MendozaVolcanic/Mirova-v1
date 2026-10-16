@@ -1,0 +1,67 @@
+name: Distancia aproximada - calcular la historia
+
+# POR QUE: la primera vez hay que calar el eje de tiempo de unas 430 Dist.png
+# (26 a 31 min medidos en local), y eso no cabe en el paso de ocr_workflow.yml,
+# que corre cada 30 min con presupuesto de 5. Este workflow se lanza A MANO una
+# vez (y otra si la cache se pierde): calcula todo con presupuesto largo y deja
+# las PNG y los calados en la cache de Actions. NO escribe ni empuja nada: el
+# unico escritor de registro_vrp_ocr.csv sigue siendo ocr_workflow.yml, que en
+# su corrida siguiente restaura esta cache y escribe la historia en segundos
+# (con los calados guardados no recalcula nada caro).
+"on":
+  workflow_dispatch:
+    inputs:
+      max_minutos:
+        description: 'Presupuesto en minutos (al agotarse guarda lo calculado en la cache)'
+        required: false
+        default: '45'
+
+concurrency:
+  group: distancia-aprox-historia
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  historia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restaurar cache de Dist.png y calados
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/mirova_dist
+          key: mirova-dist-hist-${{ github.run_id }}
+          restore-keys: mirova-dist-
+
+      # Sobre una copia: el CSV del checkout no se commitea; lo que importa es la cache.
+      - name: Calar la historia (sin escribir el repo)
+        run: |
+          cp monitoreo_satelital/registro_vrp_ocr.csv /tmp/ocr_historia.csv
+          python backfill_distancia_aprox.py --ocr /tmp/ocr_historia.csv --max-minutos "${{ github.event.inputs.max_minutos }}"
+
+      - name: Guardar cache de Dist.png y calados
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/mirova_dist
+          key: mirova-dist-hist-${{ github.run_id }}

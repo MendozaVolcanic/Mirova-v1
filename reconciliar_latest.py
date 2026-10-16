@@ -17,6 +17,8 @@ solo salen del publicable por pasar a FALSO_POSITIVO.
 import os
 import pandas as pd
 
+from dist_aprox_columnas import escribir_ocr
+
 CARPETA = "monitoreo_satelital"
 DB_OCR = os.path.join(CARPETA, "registro_vrp_ocr.csv")
 DB_CONS = os.path.join(CARPETA, "registro_vrp_consolidado.csv")
@@ -65,7 +67,7 @@ def main():
     df_ocr, n = reconciliar(df_ocr, df_cons, marca=marca)
     print(f"🔁 Reconciliación OCR↔latest.php: {n} eventos reclasificados a FALSO_POSITIVO")
     if n > 0:
-        df_ocr.to_csv(DB_OCR, index=False)
+        escribir_ocr(df_ocr, DB_OCR)    # pareos como entero (dist_aprox_columnas)
         print(f"   ✅ {DB_OCR} actualizado")
 
 
