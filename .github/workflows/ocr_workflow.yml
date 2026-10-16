@@ -201,7 +201,10 @@ jobs:
             echo "Push rechazado (otro workflow empujo primero): reintento sobre el remoto"
             sleep $((intento * 3))
           done
-          echo "::warning title=Distancia aproximada::push rechazado 5 veces; lo retoma la proxima corrida"
+          # En rojo y no en verde con aviso: si el rechazo fuera permanente (proteccion de rama, permisos) un
+          # aviso amarillo quedaria para siempre. El OCR ya esta arriba; la corrida siguiente lo retoma.
+          echo "::error title=Distancia aproximada::push rechazado 5 veces; lo retoma la proxima corrida"
+          exit 1
 
       - name: Guardar cache de Dist.png y calados
         if: always()

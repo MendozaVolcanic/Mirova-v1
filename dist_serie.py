@@ -274,6 +274,11 @@ def calibrar(lectura, lm, conocidas):
 # Con el umbral: 76 erradas de 2313 decididas (3,3 %); en ALERTA, 37 de 1493 crater leidas lejanas (2,5 %), ninguna
 # ALERTA lejana en el control. Calados en el borde de la busqueda (desfase >= +0,76 d): 6 de 140 errados (4,3 %)
 # contra 3,3 % del resto, Fisher p = 0,47; con el umbral, 4 de 138. No se justifica tratar el borde aparte.
+# PROVISIONAL (segunda vuelta del verificador del PR #25): el 5 NO es estable. Con banda de 2, 3 u 8 pareos la regla
+# da 1; la muestra del PR sola da 1 con cualquier banda y la del verificador entre 1 y 7; un bootstrap por imagen (500
+# replicas, banda 4) da 1 en el 43 % de las replicas y 5 o 6 en el 35 %. Es 5, elegido entre 1 y 7 segun la banda y la
+# muestra, no un valor derivado del dato. Efecto chico: en el CSV real de octubre de 2026 afecta 14 filas (las que con
+# 4 pareos pasan a calado_debil). Revisar cuando haya un control mas grande.
 PAREOS_MINIMOS = 5
 
 

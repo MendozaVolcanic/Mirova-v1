@@ -224,8 +224,11 @@ cubre 30 días). Antes, `pendiente`.
   las dibuja).
 - Caso `unico`: error mediano 0,07 km, p90 0,31 km (primer control). El riesgo no es la precisión, es saber de qué
   pasada es cada marcador.
-- `calado_debil`: menos de `dist_serie.PAREOS_MINIMOS` (5) pareos. Es el menor umbral cuyos calados más débiles
-  (de 5 a 8 pareos) yerran no más que el global; descansa en pocos errores, ver el comentario de la constante.
+- `calado_debil`: menos de `dist_serie.PAREOS_MINIMOS` (5) pareos. **Umbral PROVISIONAL**: con la banda de 4 pareos
+  es el menor cuyos calados más débiles yerran no más que el global, pero no es estable. Con banda de 2, 3 u 8 da 1;
+  cada muestra por separado da otro número (la del PR, 1; la del verificador, entre 1 y 7), y un bootstrap por imagen
+  da 1 en el 43 % de las réplicas y 5 o 6 en el 35 %. Es 5, elegido entre 1 y 7. Afecta 14 filas del CSV de octubre
+  de 2026 (las de 4 pareos).
 
 La decisión cerca o lejos **no se escribe** en el CSV (depende del límite de cada volcán): está en
 `dist_serie.decidir`. Lo llena `backfill_distancia_aprox.py` en `ocr_workflow.yml`, **después** del commit del OCR
