@@ -52,6 +52,15 @@ def log_debug(mensaje, tipo="INFO"):
     except OSError as e:
         print(f"⚠️ No se pudo escribir bitácora: {e}")
 
+# Sensores que publica latest.php (VIIRS = VIIRS 750 m). Uno distinto es un cambio de MIROVA que
+# hay que revisar a mano: guardarlo abriria una serie paralela en silencio (auditoria 2026-10-22, H-P4).
+SENSORES_TABLA = {"MODIS", "VIIRS", "VIIRS375"}
+
+
+class TablaInesperada(Exception):
+    """latest.php no trae lo que el scraper sabe leer: el ciclo falla en rojo y no escribe nada."""
+
+
 def numero_tabla(texto):
     """Numero de una celda de latest.php. MIROVA escribe los miles con coma ("2,178.53"); un
     float() directo lanzaba ValueError y botaba el ciclo entero (issue #19, 36 ciclos caidos)."""
@@ -134,9 +143,14 @@ def procesar():
 
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = session.get("https://www.mirovaweb.it/NRT/latest.php", headers=headers, timeout=30)
+        if res.status_code != 200:
+            raise TablaInesperada(f"latest.php respondio HTTP {res.status_code}")
 
         soup = BeautifulSoup(res.text, 'html.parser')
-        filas = soup.find('tbody').find_all('tr')
+        tbody = soup.find('tbody')
+        if tbody is None:
+            raise TablaInesperada("latest.php sin <tbody>")
+        filas = tbody.find_all('tr')
 
         log_debug(f"Filas leídas desde latest.php: {len(filas)}", "INFO")
 
@@ -167,6 +181,8 @@ def procesar():
                 log_debug(f"Fila ilegible en latest.php: VRP={cols[3].text!r} dist={cols[4].text!r}", "ADVERTENCIA")
                 continue
             sensor = cols[5].text.strip()
+            if sensor not in SENSORES_TABLA:
+                raise TablaInesperada(f"sensor desconocido en latest.php: {sensor!r} ({volcan_nombre})")
 
             es_dentro_rango = dist <= conf["limite_km"]
             es_alerta_real = False
@@ -230,6 +246,11 @@ def procesar():
                 COL_ULTIMA_UTC: ahora_utc,
             })
 
+        # latest.php lista la ultima pasada de cada volcan del mundo y sensor: siempre trae
+        # filas chilenas. Cero filas chilenas es una tabla que cambio de forma, no un dia sin datos.
+        if not nuevos_datos:
+            raise TablaInesperada(f"0 filas chilenas legibles de {len(filas)} filas leidas")
+
         if nuevos_datos:
             df_nuevos = pd.DataFrame(nuevos_datos)
             df_final = pd.concat(
@@ -245,14 +266,19 @@ def procesar():
             df_final[df_final['Tipo_Registro'] == "ALERTA_TERMICA"].to_csv(DB_POSITIVOS, index=False)
 
         log_debug("Proceso completado correctamente.", "EXITO")
+        return 0
 
     except Exception as e:
+        # Codigo 1: el workflow queda en rojo y no commitea (antes salia 0 y la bitacora hacia
+        # parecer vivo un scraper que no leia nada; auditoria 2026-10-22, H-P1).
         log_debug(f"ERROR: {e}", "ERROR")
+        return 1
 
 # =========================
 # MAIN
 # =========================
 
 if __name__ == "__main__":
-    procesar()
+    import sys
+    sys.exit(procesar())
 
