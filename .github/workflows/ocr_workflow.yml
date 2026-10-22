@@ -125,19 +125,26 @@ jobs:
           if ! git diff --quiet --staged; then
             git commit -m "🔬 OCR: Captura de eventos satelitales"
             
-            # Push con reintentos
+            # Push con reintentos. Sin `-X ours` (auditoria 2026-10-22, H-T1): esa
+            # opcion resolvia sola los choques mezclando como texto CSV que se
+            # reescriben enteros, y asi el consolidado perdio filas. Este workflow es
+            # el unico escritor de sus archivos, asi que un rebase normal no choca; si
+            # algun dia choca, se aborta en rojo para mirarlo en vez de resolverlo a
+            # ciegas. La guarda de llaves revisa el CSV del OCR contra el remoto
+            # antes de cada push.
             max_retries=5
             retry_count=0
-            
+
             while [ $retry_count -lt $max_retries ]; do
               echo "Intento $((retry_count + 1)) de push..."
-              
-              if git pull origin main --rebase --autostash -X ours; then
-                echo "Pull exitoso, intentando push..."
-              else
-                echo "⚠️ Pull falló, continuando..."
+
+              if ! git pull origin main --rebase --autostash; then
+                git rebase --abort || true
+                echo "::error title=OCR::el rebase choco con otro escritor; no se mezclan datos a ciegas"
+                exit 1
               fi
-              
+              python guarda_llaves.py monitoreo_satelital/registro_vrp_ocr.csv --ref origin/main
+
               if git push origin main; then
                 echo "✅ Push exitoso en intento $((retry_count + 1))"
                 exit 0
