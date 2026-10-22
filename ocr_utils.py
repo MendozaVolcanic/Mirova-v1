@@ -1298,16 +1298,23 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
             print(f"   🎯 FASE 1 V29 (grupo {area_grupo} px²): Y={y_absoluto} -> {distancia_aprox:.2f} km <= {limite_km} km ✅ ({metodo_dist})")
             print(f"      ✅ ALERTA_TERMICA_OCR: Grupo píxeles en Y={y_absoluto}")
 
+            # Confianza baja y verificacion (auditoria 2026-10-22, H-O1): este metodo asigna
+            # los grupos de Dist.png a las pasadas por ORDEN (el mas cercano al crater a la
+            # pasada mas reciente), no por hora. Contra latest.php, donde la tabla tiene la
+            # misma pasada, su ALERTA acierta 62/78 de noche y 5/48 de dia. Se guarda igual:
+            # marcar no es descartar.
             return {
                 'guardar': True,
                 'guardar_imagenes': True,
                 'tipo_registro': 'ALERTA_TERMICA_OCR',
-                'confianza': 'alta',
-                'requiere_verificacion': False,
+                'confianza': 'baja',
+                'requiere_verificacion': True,
                 'Color_Punto': 'sin_punto',
                 'Metodo_Deteccion': 'grupo_pixeles_v29',
                 'distancia_km': round(distancia_aprox, 2),
-                'nota': f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², dist≈{distancia_aprox:.2f} km, {metodo_dist})'
+                'nota': (f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², '
+                         f'dist≈{distancia_aprox:.2f} km, {metodo_dist}) | metodo de grupo: precision '
+                         f'medida contra latest.php 0,795 de noche y 0,104 de dia; verificar')
             }
         else:
             # FUERA del límite - FALSO POSITIVO
@@ -1324,6 +1331,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'confianza': 'baja',
                 'requiere_verificacion': False,
                 'Color_Punto': 'sin_punto',
+                'Metodo_Deteccion': 'grupo_pixeles_v29',
                 'distancia_km': round(km_grupo, 2) if km_grupo is not None else None,
                 'nota': f'Grupo fuera límite: {detalle}'
             }
