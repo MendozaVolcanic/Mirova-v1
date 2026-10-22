@@ -15,6 +15,7 @@ import numpy as np
 # Configuración de volcanes centralizada en volcanes.py (fuente única de verdad)
 from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
 from horas_utc import ahora_cl_y_utc, COL_PROCESO_UTC, COL_ULTIMA_UTC
+from orden_registros import ordenar_registros
 
 CARPETA_PRINCIPAL = "monitoreo_satelital"
 RUTA_IMAGENES_BASE = os.path.join(CARPETA_PRINCIPAL, "imagenes_satelitales")
@@ -236,8 +237,9 @@ def procesar():
             ).drop_duplicates(subset=['timestamp', 'Volcan', 'Sensor'], keep='last')
 
             # reindex y no [COLUMNAS_ESTANDAR]: un CSV anterior a las columnas UTC
-            # no las trae y la seleccion directa lanzaria KeyError.
-            df_final = df_final.reindex(columns=COLUMNAS_ESTANDAR).sort_values('timestamp', ascending=False)
+            # no las trae y la seleccion directa lanzaria KeyError. Orden total: ver
+            # orden_registros.py (con orden solo por timestamp el push perdia filas).
+            df_final = ordenar_registros(df_final.reindex(columns=COLUMNAS_ESTANDAR))
 
             df_final.to_csv(DB_MASTER, index=False)
             df_final[df_final['Tipo_Registro'] == "ALERTA_TERMICA"].to_csv(DB_POSITIVOS, index=False)

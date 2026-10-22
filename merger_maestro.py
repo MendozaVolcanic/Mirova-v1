@@ -9,6 +9,8 @@ V17: Compatible con Tupungatito
 import pandas as pd
 import os
 
+from orden_registros import ordenar_registros
+
 # =========================
 # CONFIGURACIÓN
 # =========================
@@ -40,7 +42,7 @@ def actualizar_registros_por_volcan(df_publicable):
     
     for volcan in df_publicable['Volcan'].unique():
         df_volcan = df_publicable[df_publicable['Volcan'] == volcan].copy()
-        df_volcan = df_volcan.sort_values('timestamp', ascending=False)
+        df_volcan = ordenar_registros(df_volcan)
         
         nombre_archivo = volcan.replace(' ', '_').replace('-', '_')
         ruta_csv = os.path.join(CARPETA_PRINCIPAL, f"registro_{nombre_archivo}.csv")
@@ -114,7 +116,7 @@ def merge():
     df_maestro.drop(columns=['duplicado'], inplace=True)
     
     # Ordenar
-    df_maestro = df_maestro.sort_values('timestamp', ascending=False)
+    df_maestro = ordenar_registros(df_maestro)
     
     # Seleccionar columnas
     columnas_disponibles = [c for c in COLUMNAS_MAESTRO if c in df_maestro.columns]

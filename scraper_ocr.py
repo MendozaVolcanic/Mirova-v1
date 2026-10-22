@@ -55,6 +55,7 @@ from ocr_utils import (
 from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
 from horas_utc import ahora_cl_y_utc, convertir_local_cl, COL_PROCESO_UTC, COL_ULTIMA_UTC
 from dist_aprox_columnas import COLUMNAS as COLUMNAS_DIST_APROX, escribir_ocr
+from orden_registros import ordenar_registros
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 
@@ -110,7 +111,7 @@ def guardar_ocr(df_ocr, eventos_nuevos, ruta):
     nuevos y el backfill tenia que rehacer la historia. escribir_ocr deja los pareos como entero."""
     df = pd.concat([df_ocr, pd.DataFrame(eventos_nuevos)], ignore_index=True)
     # reindex y no [COLUMNAS_OCR]: tolera un CSV anterior a alguna columna.
-    df = df.reindex(columns=COLUMNAS_OCR + COLUMNAS_DIST_APROX).sort_values('timestamp', ascending=False)
+    df = ordenar_registros(df.reindex(columns=COLUMNAS_OCR + COLUMNAS_DIST_APROX))
     escribir_ocr(df, ruta)
     return df
 
