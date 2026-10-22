@@ -1314,7 +1314,7 @@ def clasificar_confianza(evento, img_dist_path, volcan_nombre):
                 'distancia_km': round(distancia_aprox, 2),
                 'nota': (f'Grupo píxeles rojos Y={y_absoluto} (área={area_grupo} px², '
                          f'dist≈{distancia_aprox:.2f} km, {metodo_dist}) | metodo de grupo: precision '
-                         f'medida contra latest.php 0,795 de noche y 0,104 de dia; verificar')
+                         f'medida contra latest.php 0.795 de noche y 0.104 de dia; verificar')
             }
         else:
             # FUERA del límite - FALSO POSITIVO

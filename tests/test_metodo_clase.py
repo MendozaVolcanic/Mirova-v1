@@ -24,7 +24,7 @@ def test_grupo_dentro_del_radio_sale_con_confianza_baja():
     assert c["Metodo_Deteccion"] == "grupo_pixeles_v29"
     assert c["confianza"] == "baja"
     assert c["requiere_verificacion"] is True
-    assert "0,104" in c["nota"]
+    assert "0.104" in c["nota"] and "," not in c["nota"].split("|")[-1]
 
 
 def test_grupo_fuera_del_radio_sigue_siendo_falso_positivo():
