@@ -96,6 +96,14 @@ jobs:
       - name: Backfill horas UTC (OCR)
         run: python backfill_horas_utc.py monitoreo_satelital/registro_vrp_ocr.csv
 
+      # Auditoria 2026-10-22 (H-O8): repara las 647 notas que el commit manual
+      # ffc7a97d8b dejo en mojibake ("distâ‰ˆ" en vez de "dist≈"). Tramo por tramo,
+      # idempotente: la primera corrida tras el merge las repara y despues no cambia
+      # nada. Va en el workflow y no como commit de datos porque este CSV se reescribe
+      # cada hora.
+      - name: Reparar mojibake de notas (OCR)
+        run: python reparar_mojibake.py monitoreo_satelital/registro_vrp_ocr.csv
+
       - name: Reconciliar OCR contra latest.php (auto-corrige mal-ubicaciones)
         run: python reconciliar_latest.py
 
