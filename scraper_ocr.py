@@ -55,6 +55,7 @@ from ocr_utils import (
 from volcanes import VOLCANES_CONFIG, clasificacion_mirova, archivo_volcan
 from horas_utc import ahora_cl_y_utc, convertir_local_cl, COL_PROCESO_UTC, COL_ULTIMA_UTC
 from dist_aprox_columnas import COLUMNAS as COLUMNAS_DIST_APROX, escribir_ocr
+from orden_registros import ordenar_registros
 
 SENSORES = ["VIIRS375", "VIIRS", "MODIS"]
 
@@ -103,6 +104,14 @@ COLUMNAS_OCR = [
 
 
 
+# POR QUE (auditoria 2026-10-22, H-O4): Metodo_Validacion dice 'roi_temporal_v26' para casi todas
+# las filas y no distingue con que se decidio la clase. Metodo_Clase si: 'estrella_verde_v16',
+# 'grupo_pixeles_v29' (precision medida 0,795 de noche y 0,104 de dia contra latest.php) o
+# 'vrp_sin_geometria_propia'. Va AL FINAL, despues de Distancia_aprox_*, para no mover ninguna
+# columna existente (VRP Chile lee el CSV). Vacia en las filas anteriores a esta columna.
+COLUMNAS_CLASE = ['Metodo_Clase']
+
+
 def guardar_ocr(df_ocr, eventos_nuevos, ruta):
     """Agrega los eventos nuevos y reescribe registro_vrp_ocr.csv, ordenado por timestamp descendente.
     Conserva las columnas Distancia_aprox_* (las llena backfill_distancia_aprox.py, que corre despues en el
@@ -110,7 +119,7 @@ def guardar_ocr(df_ocr, eventos_nuevos, ruta):
     nuevos y el backfill tenia que rehacer la historia. escribir_ocr deja los pareos como entero."""
     df = pd.concat([df_ocr, pd.DataFrame(eventos_nuevos)], ignore_index=True)
     # reindex y no [COLUMNAS_OCR]: tolera un CSV anterior a alguna columna.
-    df = df.reindex(columns=COLUMNAS_OCR + COLUMNAS_DIST_APROX).sort_values('timestamp', ascending=False)
+    df = ordenar_registros(df.reindex(columns=COLUMNAS_OCR + COLUMNAS_DIST_APROX + COLUMNAS_CLASE))
     escribir_ocr(df, ruta)
     return df
 
@@ -328,6 +337,7 @@ def fila_vrp_sin_geometria(volcan, sensor, dt_pasada, vrp_mw, cab_dist,
         'Confianza_Validacion': 'media',
         'Requiere_Verificacion': True,
         'Metodo_Validacion': METODO_SIN_GEOMETRIA,
+        'Metodo_Clase': METODO_SIN_GEOMETRIA,
         'Nota_Validacion': nota,
         'Version_OCR': VERSION_OCR_SIN_GEOMETRIA,
         # La geometría de observación sí es de la celda de esta pasada (V30).
@@ -699,6 +709,8 @@ def procesar_volcan_sensor(session, volcan_id, sensor, df_ocr, df_consolidado):
             'Confianza_Validacion': confianza_final,
             'Requiere_Verificacion': requiere_ver,
             'Metodo_Validacion': evento.get('metodo', 'desconocido'),
+            # Metodo que decidio la clase (estrella o grupo de pixeles): ver COLUMNAS_CLASE.
+            'Metodo_Clase': clasificacion.get('Metodo_Deteccion', ''),
             # Geometria de observacion del satelite (V30). Enteros sin simbolo de
             # grado: el simbolo es no-ASCII y no aporta. Vacio si el OCR no pudo
             # leerlo -> nunca "None" ni "nan" (los consumidores leen por nombre y

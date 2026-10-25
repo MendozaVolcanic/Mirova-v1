@@ -67,3 +67,15 @@ def test_idempotente():
     out, n2 = reconciliar(out, cons, marca="2026-06-16")
     assert n1 == 1 and n2 == 0  # segunda pasada no re-modifica
     assert out.iloc[0].Nota_Validacion.count("RECONCILIADO") == 1  # sin nota duplicada
+
+
+def test_deja_en_la_nota_lo_que_tenia_antes():
+    """Auditoria 2026-10-22 (H-O5): la reclasificacion pisaba la confianza y la distancia sin
+    guardar los valores previos; quien relee la fila no podia saber que decia el OCR."""
+    ocr = pd.DataFrame([_ocr(100, "Lascar", "VIIRS375", "ALERTA_TERMICA_OCR", dist=1.44)])
+    cons = pd.DataFrame([_cons(100, "Lascar", "VIIRS375", "FALSO_POSITIVO", 22.0)])
+    out, _ = reconciliar(ocr, cons, marca="2026-10-22")
+    nota = out.iloc[0].Nota_Validacion
+    assert "antes: ALERTA_TERMICA_OCR; confianza alta; 1.44 km" in nota
+    out2, n = reconciliar(out, cons, marca="2026-10-23")
+    assert n == 0 and out2.iloc[0].Nota_Validacion == nota

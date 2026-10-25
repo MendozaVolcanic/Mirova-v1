@@ -233,6 +233,9 @@ def test_corrida_lascar_20260822_la_fila_0506_no_hereda_geometria(fixture_path, 
     assert vieja["Clasificacion Mirova"] == "SIN_GEOMETRIA"
     assert vieja["Metodo_Validacion"] == "vrp_sin_geometria_propia"
     assert vieja["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
+    # Auditoria 2026-10-22 (H-O4): la fila dice con que metodo se decidio su clase.
+    assert por_fecha["2026-08-22 05:24:01"]["Metodo_Clase"] in ("estrella_verde_v16", "grupo_pixeles_v29")
+    assert vieja["Metodo_Clase"] == "vrp_sin_geometria_propia"
     # issue #23: las dos filas llevan la hora de proceso en Chile (agosto, UTC-4)
     # y en UTC, del mismo instante de la corrida
     for f in filas:

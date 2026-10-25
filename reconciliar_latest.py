@@ -43,6 +43,10 @@ def reconciliar(df_ocr, df_cons, marca=""):
         key = (int(r.timestamp), r.Volcan, r.Sensor)
         if key in fp:
             dist = round(fp[key], 2)
+            # Lo que la fila decia antes de pisarlo (auditoria 2026-10-22, H-O5): sin esto la
+            # confianza y la distancia previas se perdian. Punto y coma: el CSV no lleva comas nuevas.
+            antes = (f"antes: {r.Tipo_Registro}; confianza {r.Confianza_Validacion}; "
+                     f"{r.Distancia_km} km")
             df_ocr.at[i, 'Tipo_Registro'] = 'FALSO_POSITIVO_OCR'
             df_ocr.at[i, 'Confianza_Validacion'] = 'baja'
             df_ocr.at[i, 'Distancia_km'] = dist
@@ -51,7 +55,7 @@ def reconciliar(df_ocr, df_cons, marca=""):
             base = str(r.Nota_Validacion).split(' | RECONCILIADO')[0]
             df_ocr.at[i, 'Nota_Validacion'] = (
                 base + f" | RECONCILIADO{(' ' + marca) if marca else ''}: latest.php (MIROVA) "
-                f"= FALSO_POSITIVO @ {dist} km (el OCR lo tenía como ALERTA por mala ubicación).")
+                f"= FALSO_POSITIVO @ {dist} km (el OCR lo tenía como ALERTA por mala ubicación; {antes}).")
             n += 1
     return df_ocr, n
 

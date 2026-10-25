@@ -1,11 +1,17 @@
 name: Monitor Volcanico VRP 
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+  # Respaldo del disparador externo (auditoria 2026-10-22, H-P3): si el despachador de
+  # cada 5 min se apaga, el scraper sigue corriendo cada 30 min en vez de detenerse sin aviso.
+  schedule:
+    - cron: '17,47 * * * *'
 
 concurrency:
   group: monitor-vrp
-  cancel-in-progress: true
+  # false: una corrida nueva espera en vez de cortar a otra a mitad del push. Con el ciclo de
+  # abajo cada corrida parte del main de ese momento, asi que esperar no la deja con base vieja.
+  cancel-in-progress: false
 
 # Red de seguridad: fuerza Node 24 en cualquier acción aún en Node 20
 env:
@@ -33,43 +39,46 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Ejecutar Scraper
-        run: python scraper.py
-
-      # Issue #23: rellena Fecha_Proceso_UTC y Ultima_Actualizacion_UTC de las
-      # filas viejas desde la hora de Chile (las ambiguas del cambio de hora de
-      # abril quedan vacias). Va aca y no como commit de datos en el PR porque
-      # este CSV se reescribe cada 5 minutos: un commit de datos chocaria con el
-      # scraper (mismo criterio que el PR #22). Idempotente: la primera corrida
-      # tras el merge rellena la historia y despues no cambia nada. Solo toca el
-      # consolidado; el CSV del OCR lo rellena ocr_workflow.yml.
-      - name: Backfill horas UTC (consolidado)
-        run: python backfill_horas_utc.py monitoreo_satelital/registro_vrp_consolidado.csv
-
-      - name: Guardar cambios en GitHub
+      # POR QUE este ciclo (auditoria 2026-10-22, H-T1): antes el scraper corria una
+      # vez y, si el push se rechazaba, hacia `git pull --rebase -X ours`. Eso mezcla
+      # como TEXTO un CSV que se reescribe entero: con dos ciclos de por medio git dejo
+      # filas dos veces o ninguna (2.165 filas perdidas en la historia, 18 alertas de
+      # 1 MW o mas), y el workflow terminaba en verde. Ahora los datos nunca se mezclan:
+      # cada intento parte del main de ESE momento (no del sha del despacho, que puede
+      # ser viejo), corre el scraper sobre el archivo fresco, revisa que no se pierda
+      # ni se repita ninguna llave y recien entonces empuja. Si otro workflow empujo
+      # primero, se descarta el intento y se rehace. Mismo patron que el paso
+      # "Distancia aproximada" de ocr_workflow.yml.
+      #
+      # backfill_horas_utc (issue #23) rellena las horas UTC de filas viejas desde la
+      # hora de Chile; idempotente. Va aca y no como commit de datos porque este CSV
+      # se reescribe cada 5 minutos.
+      #
+      # scraper.py sale con 1 si latest.php falla o cambia de forma: con `bash -e`
+      # (el shell por defecto de Actions) la corrida queda en rojo y no commitea.
+      - name: Scraper, guarda y push (sin mezclar datos)
         run: |
           git config --global user.name "VolcanoBot"
           git config --global user.email "bot@volcano.com"
-          # add selectivo: solo lo que genera el scraper (no archivos sueltos)
-          git add monitoreo_satelital/
-          if ! git diff --quiet --staged; then
+          CSV=monitoreo_satelital/registro_vrp_consolidado.csv
+          for i in 1 2 3 4 5; do
+            git fetch --depth=1 origin main
+            git reset --hard origin/main
+            # Devuelve las 2.110 filas que perdieron las mezclas de 2026 (idempotente: una
+            # vez repuestas no cambia nada; ver reponer_filas.py). Va antes del scraper para
+            # que positivos y el maestro las vean en el mismo ciclo.
+            python reponer_filas.py
+            python scraper.py
+            python backfill_horas_utc.py "$CSV"
+            python guarda_llaves.py "$CSV" --ref origin/main
+            # add selectivo: solo lo que genera el scraper (no archivos sueltos)
+            git add monitoreo_satelital/
+            if git diff --quiet --staged; then
+              echo "No hay cambios nuevos para subir."; exit 0
+            fi
             git commit -m "Auto: Sincronización de datos e imágenes"
-            # Push con reintentos. Cinco workflows escriben main y cada uno
-            # tiene su propio grupo de concurrency, así que la concurrency no
-            # los protege entre sí: entre el pull y el push hay una ventana de
-            # segundos en la que otro workflow puede empujar primero y el push
-            # se rechaza con "cannot lock ref". Por eso el pull va DENTRO del
-            # bucle, para rebasar sobre lo que haya llegado en el intento
-            # anterior. Este workflow es el más frecuente del repo (~446
-            # corridas en 14 días), o sea el que más expuesto está a la carrera.
-            # --autostash: tolera modificaciones no stageadas (ej. archivos
-            # regenerados por el runner) que harían fallar el rebase
-            for i in 1 2 3 4 5; do
-              git pull origin main --rebase --autostash -X ours || true
-              if git push origin main; then echo "✅ push OK (intento $i)"; exit 0; fi
-              echo "⚠️ push rechazado, reintento $i..."; sleep $((i*3))
-            done
-            echo "❌ push falló tras 5 intentos"; exit 1
-          else
-            echo "No hay cambios nuevos para subir."
-          fi
+            if git push origin main; then echo "✅ push OK (intento $i)"; exit 0; fi
+            echo "⚠️ push rechazado: se rehace el ciclo sobre el main nuevo (intento $i)"
+            sleep $((i*3))
+          done
+          echo "❌ push falló tras 5 intentos"; exit 1

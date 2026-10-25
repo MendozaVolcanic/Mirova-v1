@@ -1,0 +1,38 @@
+name: Vigilante de dato
+
+# POR QUE (auditoria 2026-10-22, H-P1): nada avisaba cuando el scraper dejaba de traer
+# dato; los vigilantes miraban que el workflow terminara. Este workflow corre aparte del
+# pipeline y mira el dato mismo: si la hora UTC de la ultima actualizacion del consolidado
+# tiene mas de 60 min, queda en rojo (GitHub avisa por correo de un workflow programado en rojo).
+# Umbral medido en vigilante_dato.py. Baja solo los dos archivos que usa: el repo pesa ~14 GB.
+
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vigilante-dato
+  cancel-in-progress: true
+
+jobs:
+  vigilar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            vigilante_dato.py
+            monitoreo_satelital/registro_vrp_consolidado.csv
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Edad del dato del consolidado
+        run: python vigilante_dato.py monitoreo_satelital/registro_vrp_consolidado.csv --umbral-min 60
