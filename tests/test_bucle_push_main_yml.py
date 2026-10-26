@@ -178,6 +178,8 @@ def test_paso_de_push_no_mezcla_datos_como_texto():
     script = _sin_comentarios(_script_del_paso(open(os.path.join(RAIZ, ".github", "workflows", "main.yml"), encoding="utf-8").read()))
     assert "-X ours" not in script and "--strategy-option" not in script
     assert "rebase" not in script.replace("rebasar", "")
+    for paso in ("git reset --hard origin/main", "python scraper.py", "python guarda_llaves.py", "git push origin main"):
+        assert paso in script, f"el paso de push no tiene {paso!r}"
     i_reset, i_scraper = script.index("git reset --hard origin/main"), script.index("python scraper.py")
     i_guarda, i_push = script.index("python guarda_llaves.py"), script.index("git push origin main")
     assert i_reset < i_scraper < i_guarda < i_push
@@ -192,4 +194,5 @@ def test_push_del_ocr_no_resuelve_choques_a_ciegas():
     for run in map(_sin_comentarios, push):
         assert "-X ours" not in run and "--strategy-option" not in run
     guardar = _sin_comentarios(next(run for nombre, run in pasos if (nombre or "").startswith("Guardar cambios")))
+    assert "guarda_llaves.py" in guardar and "git push origin main" in guardar, "el push del OCR no pasa por la guarda"
     assert guardar.index("guarda_llaves.py") < guardar.index("git push origin main")
