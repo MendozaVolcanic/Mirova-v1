@@ -1,6 +1,6 @@
 """Reposicion de las filas que el consolidado perdio en las mezclas del push (auditoria 2026-10-22, R4).
 
-POR QUE: 2.110 filas de pasadas ya ocurridas (18 alertas de 1 MW o mas) desaparecieron en los
+POR QUE: 2.351 filas de pasadas ya ocurridas (20 alertas de 1 MW o mas) desaparecieron en los
 episodios de mezcla de abril y de agosto a octubre de 2026, y latest.php ya no las muestra, asi que
 el scraper no las puede volver a leer. Sus copias intactas estan en los padres de esos commits.
 reponer_filas.py las devuelve: solo agrega llaves que faltan, nunca pisa una fila que existe, y
@@ -52,8 +52,9 @@ def test_descarta_nombres_no_canonicos_y_tipos_desconocidos():
     assert "EVIDENCIA_DIARIA" not in set(final["Tipo_Registro"])
 
 
-def test_archivo_de_perdidas_real_tiene_las_18_protegidas():
+def test_archivo_de_perdidas_real_tiene_las_20_protegidas():
     p = pd.read_csv("monitoreo_satelital/filas_perdidas_por_mezcla_2026.csv")
     prot = p[(p["Tipo_Registro"] == "ALERTA_TERMICA") & (p["VRP_MW"] >= 1)]
-    assert len(p) == 2110 and len(prot) == 18
+    # 2.110 de la auditoria del 2026-10-22 y 241 del episodio del 2026-10-24 (commit 53b1e6d3c0).
+    assert len(p) == 2351 and len(prot) == 20
     assert not p.duplicated(["timestamp", "Volcan", "Sensor"]).any()
