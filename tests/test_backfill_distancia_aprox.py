@@ -209,7 +209,9 @@ def test_el_scraper_ocr_conserva_las_columnas_al_guardar(tmp_path):
     ruta = tmp_path / "ocr.csv"
     scraper_ocr.guardar_ocr(pd.DataFrame([viejo]), [nuevo], str(ruta))
     f = _leer(ruta)
-    assert list(f[0].keys())[-len(C.COLUMNAS):] == C.COLUMNAS
+    # Las seis siguen justo despues de COLUMNAS_OCR (misma posicion de siempre); Metodo_Clase
+    # (auditoria 2026-10-22) va detras de ellas para no mover ninguna.
+    assert list(f[0].keys()) == scraper_ocr.COLUMNAS_OCR + C.COLUMNAS + scraper_ocr.COLUMNAS_CLASE
     vieja = next(x for x in f if x["timestamp"] == "1")
     assert (vieja["Distancia_aprox_metodo"], vieja["Distancia_aprox_pareos"], vieja["Distancia_aprox_km"]) \
         == ("unico", "39", "0.54")

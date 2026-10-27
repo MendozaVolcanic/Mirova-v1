@@ -44,7 +44,8 @@ def test_pasada_0500_se_guarda_sin_distancia():
     f = fila_vrp_sin_geometria("Nevados de Chillan", "VIIRS375", PASADA, 22.13,
                                CAB_POSTERIOR, zen=62, azi=-84)
     assert f is not None
-    assert set(f) == set(COLUMNAS_OCR)
+    from scraper_ocr import COLUMNAS_CLASE  # auditoria 2026-10-22: Metodo_Clase va al final
+    assert set(f) == set(COLUMNAS_OCR + COLUMNAS_CLASE)
     # tipo propio: sin distancia no se sabe si esta dentro del radio, asi que no
     # es ALERTA_TERMICA_OCR (que si lo afirma)
     assert f["Tipo_Registro"] == "ALERTA_SIN_GEOMETRIA_OCR"
