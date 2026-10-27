@@ -4,7 +4,8 @@ reponer_filas.py: devuelve al consolidado las filas que perdio en las mezclas de
 POR QUE (auditoria 2026-10-22, H-T1 y R4): en los episodios de abril y de agosto a octubre de
 2026 el bucle de push de main.yml mezclo como texto el consolidado y borro 2.110 filas de pasadas
 ya ocurridas, 18 de ellas alertas de 1 MW o mas; el episodio del 2026-10-24 17:44 UTC (commit 53b1e6d3c0,
-despues de la auditoria) borro 241 mas, 2 de ellas alertas de 1 MW o mas: 2.351 en total. latest.php solo muestra la ultima pasada de cada
+despues de la auditoria) borro 241 mas, 2 de ellas alertas de 1 MW o mas; los del 2026-10-26 15:37 (0b73eb4b21) y del 2026-10-27 09:12
+UTC (126ef0064c), mientras el PR esperaba el merge, borraron 297 mas, 3 de ellas alertas de 1 MW o mas: 2.648 en total. latest.php solo muestra la ultima pasada de cada
 volcan y sensor, asi que el scraper no las puede volver a leer. Sus copias intactas estan en el
 padre de cada commit de mezcla; monitoreo_satelital/filas_perdidas_por_mezcla_2026.csv las junta
 (comandos y conteos en el PR que lo agrego).

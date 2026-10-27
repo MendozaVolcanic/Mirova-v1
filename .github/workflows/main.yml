@@ -64,7 +64,7 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch --depth=1 origin main
             git reset --hard origin/main
-            # Devuelve las 2.351 filas que perdieron las mezclas de 2026 (idempotente: una
+            # Devuelve las 2.648 filas que perdieron las mezclas de 2026 (idempotente: una
             # vez repuestas no cambia nada; ver reponer_filas.py). Va antes del scraper para
             # que positivos y el maestro las vean en el mismo ciclo.
             python reponer_filas.py
